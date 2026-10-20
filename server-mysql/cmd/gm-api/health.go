@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -18,6 +19,8 @@ type dependencyHealth struct {
 
 func (a *App) health(ctx context.Context) map[string]any {
 	result := map[string]any{"status": "ok", "startedAt": strconvI64(a.startedAt.Unix()), "checkedAt": strconvI64(time.Now().Unix())}
+	result["version"] = envOrDefault("GM_VERSION", "development")
+	result["publicAddress"] = os.Getenv("MHQ_PUBLIC_ADDR")
 	dbHealth := dependencyHealth{Status: "down"}
 	if a.db != nil {
 		start := time.Now()
@@ -111,6 +114,52 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request, rid string
 		"recentLogins24h": strconvI64(recent), "configRevision": strconvI64(revision.Int64),
 		"onlineSource": "redis-markers", "health": a.health(ctx),
 	}
+	auditRows, err := a.db.QueryContext(ctx, `SELECT id, action, admin_id, result, created_at FROM gm_audit_logs ORDER BY id DESC LIMIT 8`)
+	if err != nil {
+		writeError(w, 500, rid, "query_failed", "最近操作查询失败")
+		return
+	}
+	recentAudit := make([]map[string]any, 0)
+	for auditRows.Next() {
+		var id, adminID, created int64
+		var action, result string
+		if err := auditRows.Scan(&id, &action, &adminID, &result, &created); err != nil {
+			auditRows.Close()
+			writeError(w, 500, rid, "query_failed", "最近操作查询失败")
+			return
+		}
+		recentAudit = append(recentAudit, map[string]any{"id": strconvI64(id), "adminId": strconvI64(adminID), "action": action, "result": result, "createdAt": strconvI64(created)})
+	}
+	err = auditRows.Err()
+	auditRows.Close()
+	if err != nil {
+		writeError(w, 500, rid, "query_failed", "最近操作查询失败")
+		return
+	}
+	data["recentAudit"] = recentAudit
+	loginRows, err := a.db.QueryContext(ctx, `SELECT id, name, last_login FROM players WHERE last_login > 0 ORDER BY last_login DESC, id DESC LIMIT 8`)
+	if err != nil {
+		writeError(w, 500, rid, "query_failed", "最近登录查询失败")
+		return
+	}
+	recentPlayers := make([]map[string]string, 0)
+	for loginRows.Next() {
+		var id, at int64
+		var name string
+		if err := loginRows.Scan(&id, &name, &at); err != nil {
+			loginRows.Close()
+			writeError(w, 500, rid, "query_failed", "最近登录查询失败")
+			return
+		}
+		recentPlayers = append(recentPlayers, map[string]string{"id": strconvI64(id), "name": name, "lastLogin": strconvI64(at)})
+	}
+	err = loginRows.Err()
+	loginRows.Close()
+	if err != nil {
+		writeError(w, 500, rid, "query_failed", "最近登录查询失败")
+		return
+	}
+	data["recentLogins"] = recentPlayers
 	writeJSON(w, http.StatusOK, rid, data, nil)
 }
 
