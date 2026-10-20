@@ -1,6 +1,6 @@
 # 飞牛 NAS 局域网部署
 
-验收日期：2026-10-20。当前正式服务版本 R8，正式实现仅为 `server-mysql/`。
+验收日期：2026-10-20。当前正式服务版本 R9，正式实现仅为 `server-mysql/`。
 
 ## 当前已部署实例
 
@@ -11,15 +11,15 @@
 | 游戏 | TCP `192.168.1.22:7756` |
 | GM | <http://192.168.1.22:8897> |
 | 项目名 | `qimiao` |
-| 应用镜像 | `qimiao-game:r8`、`qimiao-gm-api:r8`、`qimiao-gm-web:r8`、`qimiao-tools:r8` |
+| 应用镜像 | `qimiao-game:r9`、`qimiao-gm-api:r9`；维护任务另用 `qimiao-tools:r9` |
 | 依赖 | MySQL 8.0.37、Redis 7.4-alpine；不发布宿主机端口 |
-| 状态 | 五个常驻服务健康；一次性 init 正常退出 0 |
+| 状态 | game、gm-api（含网页）、mysql、redis 四个常驻服务健康；无遗留 init |
 
-没有配置域名、公网穿透、Lucky 或 HTTPS。GM API 仅经同源 Web 代理访问。
-只有 NAS 局域网 IP 的 7756、8897 对外绑定；API、MySQL、Redis 均在项目内部网络。
+没有配置域名、公网穿透、Lucky 或 HTTPS。GM 网页与 API 由同一个 Go HTTP 服务提供。
+只有 NAS 局域网 IP 的 7756、8897 对外绑定；MySQL、Redis 均在项目内部网络。
 
 目录用途：`mysql/` 为存档和 GM 数据库，`redis/` 为 Redis AOF；`config/operations/` 为待发布 YAML，
-`backups/` 保存经校验的备份；`build/r8/source/` 为本次镜像构建源，`source` 指向它。
+`backups/` 保存经校验的备份；`build/r9/source/` 为本次镜像构建源，`source` 指向它。
 `logs/` 保存部署和测试证据。MySQL 目录维持镜像所需 UID，不要递归改为用户 1000。
 
 ## 账号与启动
@@ -27,7 +27,7 @@
 GM 初始用户名 `admin`。随机初始密码在 NAS 根目录私有 `.env` 的 `GM_ADMIN_PASSWORD` 中；
 本机本次部署私有副本位于 `F:\codex\qimiao\task-records\deploy-r5\.env`。密码不写入本说明或 Git。
 GM 管理员与游戏账号分开，游戏里自行注册普通账号。登录 GM 后可在“修改密码”页面改密。
-改密后的有效密码在数据库；后续 init 不会用 `.env` 覆盖它。
+改密后的有效密码在数据库；后续启动不会用 `.env` 覆盖它。
 
 以下命令在 NAS 终端执行，不需要在 Windows 安装 Docker。先定义固定项目函数：
 
@@ -41,7 +41,8 @@ qcompose logs --tail 100 game gm-api
 
 临时停服：`qcompose stop`；再次启动：`qcompose up -d --no-build --wait`。
 数据直接绑定到根目录，重建应用容器不会清空存档。不要删除 mysql/redis，不使用 `down -v` 或全局 prune。
-健康检查失败先看对应服务日志和 `init` 退出状态，不能删除数据库来“修复初始化”。
+健康检查失败先看 game/gm-api 日志中的初始化结果，不能删除数据库来“修复初始化”。
+tools 仅属于 maintenance profile，普通 up 不会启动它；执行临时工具时使用 `run --rm`。
 
 ## 在空目录首次安装（不要对现有实例重做）
 
@@ -70,13 +71,13 @@ chmod 600 .env
 chmod 755 ops/*.sh
 qcompose() { docker compose --project-directory "$root" --env-file "$root/.env" -f "$root/compose.yaml" -p qimiao "$@"; }
 qcompose config --quiet
-qcompose build init game gm-api gm-web
+qcompose --profile maintenance build tools game gm-api
 qcompose up -d --no-build --wait
 qcompose ps
 ```
 
-启动顺序为 MySQL/Redis 健康 → init → game → GM API → Web。
-init 从镜像中校验过的 YAML 原子导入 79 个配置（含真实 SkillLogicConfig），只在空配置库首次执行。
+启动顺序为 MySQL/Redis 健康 → game 启动前配置初始化 → game 健康 → GM 管理员初始化及网页/API。
+game 使用原导入命令，从镜像中校验过的 YAML 原子导入 79 个配置（含真实 SkillLogicConfig），只在空配置库首次执行。
 有数据但缺初始化标记时会拒绝覆盖；重复启动不会重置角色或管理员密码。
 原始 JSON 仅在构建阶段离线转换，游戏运行时从 MySQL 读配置。
 
@@ -95,4 +96,6 @@ ZIP 标记 2026.1.3.2，Unity 2020.3.49f1c1，内置协议版本 2.5。
 按 Ctrl+G 可回城；普通商店走近 NPC 后右键打开，商品双击购买，按住 Ctrl 双击可选择数量。
 账号密码及客户端登录由玩家本人操作。
 
+R9 合并网页/API 并将原幂等初始化放入启动流程；游戏二进制和三个网页应用文件与 R8 逐字节相同。
+旧布局迁移、测试证据和镜像清理见 [容器精简说明](容器精简说明.md)。
 继续阅读：[GM 使用说明](GM-使用说明.md)、[备份与恢复](备份与恢复.md)、[修复与测试报告](修复与测试报告.md)。
