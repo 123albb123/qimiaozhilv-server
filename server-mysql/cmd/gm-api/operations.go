@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -152,10 +153,24 @@ func (a *App) handleCommands(w http.ResponseWriter, r *http.Request, rid string,
 	_ = a.expireStaleCommands(ctx)
 	if request == "" {
 		limit := clampLimit(r.URL.Query().Get("limit"), 25)
-		cursor := parseInt64Param(r.URL.Query().Get("cursor"), 0)
+		cursorTime, cursorID := int64(9223372036854775807), ""
+		if raw := strings.TrimSpace(r.URL.Query().Get("cursor")); raw != "" {
+			parts := strings.SplitN(raw, "|", 2)
+			cursorTime = parseInt64Param(parts[0], -1)
+			if len(parts) == 2 {
+				cursorID = parts[1]
+			}
+			if cursorTime < 0 || len(cursorID) > 64 {
+				writeError(w, 400, rid, "invalid_cursor", "分页游标无效")
+				return
+			}
+		}
+		search, statusFilter := strings.TrimSpace(r.URL.Query().Get("query")), r.URL.Query().Get("result")
 		rows, err := a.db.QueryContext(ctx, `SELECT request_id, action, target_id, admin_id, status, payload_hash,
 			expected_version, game_revision, error_code, expires_at, created_at, accepted_at, finished_at
-			FROM gm_command_records WHERE created_at > ? ORDER BY created_at DESC LIMIT ?`, cursor, limit)
+			FROM gm_command_records WHERE (created_at < ? OR (created_at = ? AND request_id < ?))
+			AND (?='' OR action LIKE CONCAT('%',?,'%') OR request_id LIKE CONCAT('%',?,'%') OR target_id LIKE CONCAT('%',?,'%') OR admin_id=?)
+			AND (?='' OR status=?) ORDER BY created_at DESC, request_id DESC LIMIT ?`, cursorTime, cursorTime, cursorID, search, search, search, search, parseInt64Param(search, -1), statusFilter, statusFilter, limit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, rid, "query_failed", "命令记录查询失败")
 			return
@@ -170,7 +185,16 @@ func (a *App) handleCommands(w http.ResponseWriter, r *http.Request, rid string,
 			}
 			items = append(items, item)
 		}
-		writeJSON(w, http.StatusOK, rid, map[string]any{"items": items}, nil)
+		if rows.Err() != nil {
+			writeError(w, 500, rid, "query_failed", "命令记录查询失败")
+			return
+		}
+		next := ""
+		if len(items) == limit {
+			last := items[len(items)-1]
+			next = fmt.Sprint(last["createdAt"]) + "|" + fmt.Sprint(last["requestId"])
+		}
+		writeJSON(w, http.StatusOK, rid, map[string]any{"items": items, "nextCursor": next}, nil)
 		return
 	}
 	var action, targetID, status, payloadHash, expectedVersion, errorCode string

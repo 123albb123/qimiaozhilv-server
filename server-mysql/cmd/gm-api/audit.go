@@ -72,13 +72,22 @@ func truncate(value string, max int) string {
 	return value[:max]
 }
 
-func (a *App) auditRows(ctx context.Context, limit int, cursor int64) ([]map[string]any, error) {
+func (a *App) auditRows(ctx context.Context, limit int, cursor int64, filters ...string) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 25
 	}
+	search, resultFilter := "", ""
+	if len(filters) > 0 {
+		search = strings.TrimSpace(filters[0])
+	}
+	if len(filters) > 1 {
+		resultFilter = filters[1]
+	}
 	query := `SELECT id, request_id, admin_id, action, target_type, target_id, reason,
-		result, error_code, duration_ms, created_at FROM gm_audit_logs WHERE id > ? ORDER BY id LIMIT ?`
-	rows, err := a.db.QueryContext(ctx, query, cursor, limit)
+		result, error_code, duration_ms, created_at FROM gm_audit_logs WHERE id > ?
+		AND (?='' OR action LIKE CONCAT('%',?,'%') OR target_id LIKE CONCAT('%',?,'%') OR request_id LIKE CONCAT('%',?,'%') OR admin_id=?)
+		AND (?='' OR result=?) ORDER BY id LIMIT ?`
+	rows, err := a.db.QueryContext(ctx, query, cursor, search, search, search, search, parseInt64Param(search, -1), resultFilter, resultFilter, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +119,7 @@ func (a *App) handleAudit(w http.ResponseWriter, r *http.Request, rid string, se
 	// Keep the audit view consistent with the command view when an older game
 	// process left accepted commands without a result.
 	_ = a.expireStaleCommands(ctx)
-	rows, err := a.auditRows(ctx, limit, cursor)
+	rows, err := a.auditRows(ctx, limit, cursor, r.URL.Query().Get("query"), r.URL.Query().Get("result"))
 	cancel()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, rid, "query_failed", "审计日志查询失败")
