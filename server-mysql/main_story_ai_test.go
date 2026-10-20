@@ -12,6 +12,7 @@ import (
 func TestMainStoryAIStartFailureSendsHealthReason(t *testing.T) {
 	loadOnlineTablesForTest(t)
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	ch, conn := consistencyChannel(990000, 1001101)
 	ch.session.hp = 0
 	server.conns[ch.id] = ch
@@ -40,6 +41,7 @@ func TestMainStoryAIStartFailureSendsHealthReason(t *testing.T) {
 func TestMainStoryAIAdvancesAfterVictoryOutsideBeach(t *testing.T) {
 	loadOnlineTablesForTest(t)
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	ch, conn := consistencyChannel(990001, 1001101)
 	ch.session.tasks = make(map[int32]int32)
 	ch.session.killCount = make(map[int32]int32)
@@ -66,8 +68,11 @@ func TestMainStoryAIAdvancesAfterVictoryOutsideBeach(t *testing.T) {
 
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
+		server.mapTransitionMu.Lock()
+		mapID := ch.session.mapID
+		server.mapTransitionMu.Unlock()
 		ch.session.battleMu.Lock()
-		mapID, nextBattle, autoRunning := ch.session.mapID, ch.session.battle != nil, ch.session.autoBattle
+		nextBattle, autoRunning := ch.session.battle != nil, ch.session.autoBattle
 		ch.session.battleMu.Unlock()
 		if mapID == 1001102 && nextBattle && autoRunning {
 			frames := decodeRecordedFrames(t, conn.Bytes())
@@ -289,6 +294,7 @@ func TestPartyMainStoryAIStopsAndNamesMemberWithInsufficientEnergy(t *testing.T)
 	leader.session.mainStoryAIEpoch++
 	epoch := leader.session.mainStoryAIEpoch
 	server := &Server{conns: map[int64]*channel{leader.id: leader, follower.id: follower}}
+	cleanupGameTestServer(t, server)
 	teamMu.Lock()
 	teams[1] = &teamState{LeaderId: leader.session.playerID, Members: []int64{
 		leader.session.playerID, follower.session.playerID,
@@ -343,6 +349,7 @@ func TestMainStoryAIPortalRunKeepsSceneWithoutReload(t *testing.T) {
 	leader.session.mainStoryAIEpoch++
 	epoch := leader.session.mainStoryAIEpoch
 	server := &Server{conns: map[int64]*channel{leader.id: leader, follower.id: follower}}
+	cleanupGameTestServer(t, server)
 	teamMu.Lock()
 	teams[1] = &teamState{LeaderId: leader.session.playerID, Members: []int64{
 		leader.session.playerID, follower.session.playerID,
@@ -381,6 +388,7 @@ func TestMainStoryAIPortalRunKeepsSceneWithoutReload(t *testing.T) {
 func assertMainStoryAIChapterLoop(t *testing.T) {
 	loadOnlineTablesForTest(t)
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	ch, conn := consistencyChannel(990002, 1001110)
 	ch.session.tasks = make(map[int32]int32)
 	ch.session.killCount = make(map[int32]int32)
@@ -405,8 +413,11 @@ func assertMainStoryAIChapterLoop(t *testing.T) {
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
+		server.mapTransitionMu.Lock()
+		mapID := ch.session.mapID
+		server.mapTransitionMu.Unlock()
 		ch.session.battleMu.Lock()
-		mapID, nextBattle, autoRunning := ch.session.mapID, ch.session.battle != nil, ch.session.autoBattle
+		nextBattle, autoRunning := ch.session.battle != nil, ch.session.autoBattle
 		ch.session.battleMu.Unlock()
 		if mapID == 1001101 && nextBattle && autoRunning {
 			frames := decodeRecordedFrames(t, conn.Bytes())
@@ -464,6 +475,7 @@ func TestMainStoryAIArmsEveryPartyMemberWithoutPersistingAutoPreference(t *testi
 	})
 
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	members := make([]*channel, 0, maxTeamMembers)
 	ids := make([]int64, 0, maxTeamMembers)
 	for index := 0; index < maxTeamMembers; index++ {

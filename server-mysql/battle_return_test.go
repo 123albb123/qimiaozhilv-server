@@ -45,7 +45,10 @@ func cancelReturnTestMapStartup(t *testing.T, channels ...*channel) {
 	t.Cleanup(func() {
 		for _, ch := range channels {
 			if ch != nil && ch.session != nil {
+				ch.session.superseded.Store(true)
+				ch.session.stopMainStoryAI()
 				ch.session.markMapChange()
+				ch.teamHeadReloadGen.Add(1)
 			}
 		}
 	})

@@ -2,6 +2,12 @@ package main
 
 import "testing"
 
+func hasBattleForTest(ch *channel) bool {
+	ch.session.battleMu.Lock()
+	defer ch.session.battleMu.Unlock()
+	return ch.session.battle != nil
+}
+
 // Tests constructing Server literals still own asynchronous map/AI/vital
 // callbacks. Invalidate those sessions before restoring package-wide fixtures.
 func cleanupGameTestServer(t *testing.T, server *Server) {

@@ -25,7 +25,9 @@ func activityTestChannel(t *testing.T, id int64) (*Server, *session, *channel) {
 	ss.killCount = make(map[int32]int32)
 	ss.signin = &signinState{}
 	ch := &channel{id: id, conn: &recordingConn{}, session: ss}
-	return &Server{conns: map[int64]*channel{id: ch}}, ss, ch
+	server := &Server{conns: map[int64]*channel{id: ch}}
+	cleanupGameTestServer(t, server)
+	return server, ss, ch
 }
 
 func finishActivityTestStage(t *testing.T, server *Server, ch *channel) {
@@ -116,12 +118,16 @@ func clickActivityFieldMonster(t *testing.T, server *Server, members ...*channel
 		t.Fatalf("activity stage has no display monster: %+v", state.activity)
 	}
 	unitID := int64(0)
+	// Scene publication and its display-monster map are one transition. Wait
+	// for that transition, rather than racing the continuation's map writes.
+	server.mapTransitionMu.Lock()
 	for id, gotConfigID := range origin.session.fieldMonsterConfigIDs {
 		if gotConfigID == configID {
 			unitID = id
 			break
 		}
 	}
+	server.mapTransitionMu.Unlock()
 	if unitID == 0 {
 		t.Fatalf("origin has no activity display monster config=%d", configID)
 	}

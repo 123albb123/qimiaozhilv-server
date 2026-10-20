@@ -55,6 +55,7 @@ func TestPKCreatesBothEnemyTeamsAndNativeExit(t *testing.T) {
 	left := &channel{id: 1, conn: &recordingConn{}, session: leftSession}
 	right := &channel{id: 2, conn: &recordingConn{}, session: rightSession}
 	server := &Server{conns: map[int64]*channel{left.id: left, right.id: right}}
+	cleanupGameTestServer(t, server)
 
 	response := server.onStartPKFight(left, &protocol.C2M_StartPKFight{RpcId: 9, TargetId: rightSession.playerID}).(*protocol.M2C_StartPKFight)
 	if response.Error != 0 || response.Message != "" {
@@ -190,6 +191,7 @@ func TestPersonalPVPMatchesInOnlineArenaAndSettlesRatedResult(t *testing.T) {
 	left.session.signin.PVPScore = 30
 	right.session.signin.PVPScore = 3
 	server := &Server{conns: map[int64]*channel{left.id: left, right.id: right}}
+	cleanupGameTestServer(t, server)
 
 	firstResponse := server.onRequestPersonalPvp(left, &protocol.C2M_RequestPersonalPvp{RpcId: 1})
 	if firstResponse == nil || !left.session.signin.PVPIsMatching {
@@ -206,12 +208,15 @@ func TestPersonalPVPMatchesInOnlineArenaAndSettlesRatedResult(t *testing.T) {
 		left.session.battle.pvp != right.session.battle.pvp || !left.session.battle.pvp.rated {
 		t.Fatal("personal PVP did not create one rated linked duel")
 	}
-	for _, battle := range []*battleState{left.session.battle, right.session.battle} {
-		if battle.copyID != personalPVPCopyID || battle.battleType != personalPVPBattleType ||
-			battle.mapID != personalPVPArenaMapID {
-			t.Fatalf("personal PVP copy/type/map=%d/%d/%d", battle.copyID, battle.battleType, battle.mapID)
+	for _, participant := range []*channel{left, right} {
+		participant.session.battleMu.Lock()
+		battle := participant.session.battle
+		copyID, battleType, mapID, scenePending := battle.copyID, battle.battleType, battle.mapID, battle.scenePending
+		participant.session.battleMu.Unlock()
+		if copyID != personalPVPCopyID || battleType != personalPVPBattleType || mapID != personalPVPArenaMapID {
+			t.Fatalf("personal PVP copy/type/map=%d/%d/%d", copyID, battleType, mapID)
 		}
-		if !battle.scenePending {
+		if !scenePending {
 			t.Fatal("personal PVP battle accepted input before its arena scene was ready")
 		}
 	}
@@ -221,8 +226,13 @@ func TestPersonalPVPMatchesInOnlineArenaAndSettlesRatedResult(t *testing.T) {
 		}
 	}
 	time.Sleep(mapStartupDelay + mapTeamSnapshotDelay + 100*time.Millisecond)
-	if left.session.battle.scenePending || right.session.battle.scenePending {
-		t.Fatal("personal PVP presentation remained pending after arena startup")
+	for _, participant := range []*channel{left, right} {
+		participant.session.battleMu.Lock()
+		pending := participant.session.battle.scenePending
+		participant.session.battleMu.Unlock()
+		if pending {
+			t.Fatal("personal PVP presentation remained pending after arena startup")
+		}
 	}
 
 	assertStartOrder := func(ch *channel, responseRequired bool) {
@@ -276,6 +286,7 @@ func TestPersonalPVPDailyCapResetsOnConfiguredDay(t *testing.T) {
 	loadOnlineTablesForTest(t)
 	ch := newPersonalPVPTestChannel(501, 10004, 0, 0)
 	server := &Server{conns: map[int64]*channel{ch.id: ch}}
+	cleanupGameTestServer(t, server)
 	ch.session.signin.PVPBattleCount = personalPVPDailyBattleCap
 
 	blocked := server.onRequestPersonalPvp(ch, &protocol.C2M_RequestPersonalPvp{}).(*protocol.M2C_RequestPersonalPvp)
@@ -296,6 +307,7 @@ func TestPersonalPVPDisconnectSettlesAndRestoresOfflinePlayer(t *testing.T) {
 	left := newPersonalPVPTestChannel(601, 10004, -3, -1)
 	right := newPersonalPVPTestChannel(602, 1000501, 4, 2)
 	server := &Server{conns: map[int64]*channel{left.id: left, right.id: right}}
+	cleanupGameTestServer(t, server)
 	if response := server.onRequestPersonalPvp(left, &protocol.C2M_RequestPersonalPvp{}); response == nil {
 		t.Fatal("first player did not enter queue")
 	}
@@ -326,6 +338,7 @@ func TestPersonalPVPDisconnectCancelsWaitingState(t *testing.T) {
 	loadOnlineTablesForTest(t)
 	ch := newPersonalPVPTestChannel(701, 10004, 0, 0)
 	server := &Server{conns: map[int64]*channel{ch.id: ch}}
+	cleanupGameTestServer(t, server)
 	if response := server.onRequestPersonalPvp(ch, &protocol.C2M_RequestPersonalPvp{}); response == nil {
 		t.Fatal("player did not enter queue")
 	}
@@ -348,6 +361,7 @@ func TestPKRejectsEitherDefeatedPlayerBeforeInstallingBattle(t *testing.T) {
 	left := &channel{id: 1, conn: &recordingConn{}, session: leftSession}
 	right := &channel{id: 2, conn: &recordingConn{}, session: rightSession}
 	server := &Server{conns: map[int64]*channel{left.id: left, right.id: right}}
+	cleanupGameTestServer(t, server)
 
 	leftSession.hp = 0
 	response := server.onStartPKFight(left, &protocol.C2M_StartPKFight{

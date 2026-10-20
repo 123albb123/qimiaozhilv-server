@@ -48,11 +48,14 @@ func TestPartyBossSkillAndSettlementAreBroadcastToBothClients(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(time.Second)
-	for (first.session.battle != nil || second.session.battle != nil) && time.Now().Before(deadline) {
+	for (hasBattleForTest(first) || hasBattleForTest(second)) && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if first.session.battle != nil || second.session.battle != nil || !party.settled {
-		t.Fatalf("party settlement incomplete: first=%p second=%p settled=%v", first.session.battle, second.session.battle, party.settled)
+	party.mu.Lock()
+	settled := party.settled
+	party.mu.Unlock()
+	if hasBattleForTest(first) || hasBattleForTest(second) || !settled {
+		t.Fatal("party settlement did not detach both battles and settle the shared reward")
 	}
 
 	for _, recipient := range []*channel{first, second} {
@@ -181,6 +184,7 @@ func TestFiveMemberPartyBattleBroadcastsCombatAndSettlesOnce(t *testing.T) {
 	})
 
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	members := make([]*channel, 0, maxTeamMembers)
 	ids := make([]int64, 0, maxTeamMembers)
 	for index := 0; index < maxTeamMembers; index++ {
@@ -336,6 +340,7 @@ func TestPartyFamilyBossPreparesEveryClientBeforePresentation(t *testing.T) {
 	secondSession, second := makeMember(202, "second")
 	secondSession.hp, secondSession.mp = 31, 17
 	server := &Server{conns: map[int64]*channel{first.id: first, second.id: second}}
+	cleanupGameTestServer(t, server)
 	teamMu.Lock()
 	teams[1] = &teamState{LeaderId: firstSession.playerID, Members: []int64{firstSession.playerID, secondSession.playerID}}
 	teamMu.Unlock()
@@ -488,6 +493,7 @@ func newSharedPartyBattleForTest(t *testing.T) (*Server, *partyBattle, *channel,
 	firstSession.battle, secondSession.battle = firstBattle, secondBattle
 	party.shareCombatState()
 	server := &Server{conns: map[int64]*channel{first.id: first, second.id: second}}
+	cleanupGameTestServer(t, server)
 	return server, party, first, second
 }
 
@@ -759,6 +765,7 @@ func TestTeamBattleRejectsDefeatedMemberBeforeEnergyCharge(t *testing.T) {
 	})
 
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	members := make([]*channel, 0, 2)
 	for index := 0; index < 2; index++ {
 		ss := newSession()
