@@ -81,6 +81,7 @@ func TestReplaceDuringPartyActivityCleansClientsBeforeRemovingUnit(t *testing.T)
 	})
 
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	old, oldConn := tradeTestChannel(1, 7100, "old")
 	current, currentConn := tradeTestChannel(2, 7100, "current")
 	old.session.state = sessInGame

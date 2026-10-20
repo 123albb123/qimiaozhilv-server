@@ -22,6 +22,7 @@ func dungeonTeamTestParty(t *testing.T, ids ...int64) (*Server, []*channel) {
 	})
 
 	server := &Server{conns: make(map[int64]*channel)}
+	cleanupGameTestServer(t, server)
 	members := make([]*channel, 0, len(ids))
 	for _, id := range ids {
 		ss := newSession()
@@ -225,6 +226,7 @@ func TestPersonalPVPLeavesTeamsOnlyAfterMatch(t *testing.T) {
 		requester.id: requester, waiting.id: waiting,
 		requesterFollower.id: requesterFollower, waitingLeader.id: waitingLeader,
 	}}
+	cleanupGameTestServer(t, server)
 	teamMu.Lock()
 	teams[1] = &teamState{LeaderId: 801, Members: []int64{801, 803}}
 	teams[2] = &teamState{LeaderId: 804, Members: []int64{804, 802}}
