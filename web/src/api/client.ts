@@ -1,9 +1,9 @@
 export type ApiEnvelope<T> = { requestId: string; data: T | null; error: { code: string; message: string; details?: Record<string, unknown> } | null }
 
 export type Session = { adminId: string; username: string; displayName: string; roles: string[]; expiresAt: string; csrfToken?: string }
-export type Health = { status: string; startedAt: string; checkedAt: string; mysql: Dependency; redis: Dependency; game: Dependency }
+export type Health = { status: string; startedAt: string; checkedAt: string; mysql: Dependency; redis: Dependency; game: Dependency; version?: string; publicAddress?: string }
 export type Dependency = { status: string; latencyMs: string; detail?: string }
-export type Dashboard = { accounts: string; players: string; online: string; recentLogins24h: string; configRevision: string; onlineSource: string; health: Health }
+export type Dashboard = { accounts: string; players: string; online: string; recentLogins24h: string; configRevision: string; onlineSource: string; health: Health; recentAudit: { id: string; adminId: string; action: string; result: string; createdAt: string }[]; recentLogins: { id: string; name: string; lastLogin: string }[] }
 export type Player = { id: string; account: string; name: string; jobId: number; level: number; trans: number; familyId: string; mapId: number; lastLogin: string; coin: string; yuanBao: string; voucher: string; honor: string; pvpCurrency: string; storeCoin: string; online: boolean }
 export type PlayerDetail = Player & { skinId: number; titleId: number; exp: string; energy: number; posX: number; posY: number; charPoint: number; skillPoint: number; attributes: Record<string, number>; autoBattle: number; storePages: number; familyContribute: number; personalContribute: number; sessionState: string }
 export type Page<T> = { items: T[]; nextCursor: string }
@@ -17,6 +17,9 @@ export type CommandRecord = { requestId: string; action: string; targetId: strin
 export type AuditRecord = { id: string; requestId: string; adminId: string; action: string; targetType: string; targetId: string; reason: string; result: string; errorCode: string; durationMs: string; createdAt: string }
 export type SubGM = { id: string; username: string; displayName: string; status: boolean; createdAt: string; bindingCount: number }
 export type SubGMBinding = { accountId: string; account: string; playerCount: number }
+export type Account = { id: string; account: string; createdAt: string; playerCount: string }
+export type AdminUser = { id: string; username: string; displayName: string; active: boolean; lastLogin: string; roles: string[] }
+export type AdminInput = { username: string; displayName: string; active: boolean; password: string; roles: string[]; reason: string }
 
 // 手工装备候选池：GET /api/v1/equip-manual/options。所有条目都带中文名，前端不显示裸 id。
 export type EquipManualRandomAttr = { id: number; key: number; keyName: string; value: number }
@@ -106,6 +109,11 @@ export const api = {
     return value
   },
   logout: () => request<{ loggedOut: boolean }>('/api/v1/auth/logout', { method: 'POST', body: '{}' }),
+  changePassword: (currentPassword: string, newPassword: string) => request<{ changed: boolean }>('/api/v1/auth/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  admins: () => request<{ items: AdminUser[] }>('/api/v1/admins'),
+  adminRoles: () => request<{ items: { name: string; description: string }[] }>('/api/v1/admins/roles'),
+  saveAdmin: (id: string, input: AdminInput) => request<{ id: string; saved: boolean }>(`/api/v1/admins${id ? `/${encodeURIComponent(id)}` : ''}`, { method: 'POST', body: JSON.stringify(input) }),
+  accounts: (params: { query?: string; cursor?: string }) => request<Page<Account>>(`/api/v1/accounts?limit=50&query=${encodeURIComponent(params.query || '')}&cursor=${encodeURIComponent(params.cursor || '')}`),
   me: async () => {
     const value = await request<Session>('/api/v1/auth/me')
     setCsrfToken(value.csrfToken || csrfFromCookie())
@@ -122,9 +130,9 @@ export const api = {
   families: (params: { query?: string; cursor?: string }) => request<Page<Record<string, unknown>>>(`/api/v1/families?limit=50&query=${encodeURIComponent(params.query || '')}&cursor=${encodeURIComponent(params.cursor || '')}`),
   consignments: (params: { cursor?: string }) => request<Page<Record<string, unknown>>>(`/api/v1/consignments?limit=50&cursor=${encodeURIComponent(params.cursor || '')}`),
   bosses: () => request<{ world: Record<string, unknown>[]; family: Record<string, unknown>[] }>('/api/v1/world-bosses'),
-  commands: (cursor = '') => request<Page<CommandRecord>>(`/api/v1/commands?limit=50&cursor=${encodeURIComponent(cursor)}`),
+  commands: (cursor = '', query = '', result = '') => request<Page<CommandRecord>>(`/api/v1/commands?limit=50&cursor=${encodeURIComponent(cursor)}&query=${encodeURIComponent(query)}&result=${encodeURIComponent(result)}`),
   command: (id: string) => request<CommandRecord>(`/api/v1/commands/${encodeURIComponent(id)}`),
-  audit: (cursor = '') => request<Page<AuditRecord>>(`/api/v1/audit?limit=50&cursor=${encodeURIComponent(cursor)}`),
+  audit: (cursor = '', query = '', result = '') => request<Page<AuditRecord>>(`/api/v1/audit?limit=50&cursor=${encodeURIComponent(cursor)}&query=${encodeURIComponent(query)}&result=${encodeURIComponent(result)}`),
   configs: () => request<{ items: Config[] }>('/api/v1/configs'),
   config: (name: string) => request<Config>(`/api/v1/configs/${encodeURIComponent(name)}`),
   revisions: (name: string) => request<{ items: ConfigRevision[] }>(`/api/v1/configs/${encodeURIComponent(name)}/revisions`),

@@ -11,6 +11,9 @@ import { Audit } from '../pages/Audit/Audit'
 import { Operations } from '../pages/Operations/Operations'
 import { SubGMs } from '../pages/SubGMs/SubGMs'
 import { Broadcast } from '../pages/Broadcast/Broadcast'
+import { Accounts } from '../pages/Accounts/Accounts'
+import { Admins } from '../pages/Admins/Admins'
+import { Password } from '../pages/Password/Password'
 
 export default function App() {
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false })
@@ -22,6 +25,9 @@ export default function App() {
     <Route element={authenticated ? <Shell session={me.data!} /> : <Navigate to="/login" replace />}>
       <Route index element={subGM ? <Navigate to="/players" replace /> : <Dashboard />} />
       <Route path="players" element={<Players />} />
+      <Route path="accounts" element={canAny(me.data ?? null, ['accounts.read']) ? <Accounts /> : <Navigate to="/" replace />} />
+      <Route path="admins" element={canAny(me.data ?? null, ['admins.manage']) ? <Admins /> : <Navigate to="/" replace />} />
+      <Route path="password" element={<Password />} />
       <Route path="players/:playerId" element={<PlayerDetail />} />
       {/* 全服操作不在侧栏之外另开权限判断：侧栏只决定「看不看得见入口」，
           直接敲 URL 的人也要被挡，判据和侧栏用的是同一份 rolePermissions。

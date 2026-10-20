@@ -38,8 +38,8 @@ func (a *App) handleAccounts(w http.ResponseWriter, r *http.Request, rid string,
 	defer cancel()
 	rows, err := a.db.QueryContext(ctx, `SELECT id, account, create_time,
 		(SELECT COUNT(*) FROM players p WHERE p.account_id = a.id) AS player_count
-		FROM accounts a WHERE a.id > ? AND (? = '' OR account LIKE CONCAT('%', ?, '%'))
-		ORDER BY a.id LIMIT ?`, cursor, query, query, limit)
+		FROM accounts a WHERE a.id > ? AND (? = '' OR account LIKE CONCAT('%', ?, '%') OR a.id = ?)
+		ORDER BY a.id LIMIT ?`, cursor, query, query, parseInt64Param(query, 0), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, rid, "query_failed", "账号查询失败")
 		return
@@ -87,9 +87,9 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 	playersQuery := `SELECT p.id, a.account, p.name, p.job_id, p.level, p.trans,
 		p.family_id, p.map_id, p.last_login, p.coin, p.yuan_bao, p.voucher, p.honor,
 		p.pvp_currency, p.store_coin FROM players p JOIN accounts a ON a.id = p.account_id
-		WHERE p.id > ? AND (? = '' OR p.name LIKE CONCAT('%', ?, '%') OR a.account LIKE CONCAT('%', ?, '%'))
+		WHERE p.id > ? AND (? = '' OR p.name LIKE CONCAT('%', ?, '%') OR a.account LIKE CONCAT('%', ?, '%') OR p.id = ? OR a.id = ?)
 		`
-	playerArgs := []any{cursor, query, query, query}
+	playerArgs := []any{cursor, query, query, query, parseInt64Param(query, 0), parseInt64Param(query, 0)}
 	if isSubGM(session) {
 		playersQuery += ` AND EXISTS (SELECT 1 FROM gm_sub_gm_bindings b WHERE b.account_id = p.account_id AND b.sub_gm_id = ?)`
 		playerArgs = append(playerArgs, session.AdminID)

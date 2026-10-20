@@ -1,4 +1,4 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, Boxes, ChevronRight, LayoutDashboard, LogOut, Megaphone, Menu, ScrollText, ServerCog, ShieldCheck, Users, X } from 'lucide-react'
 import { createContext, ReactNode, useContext, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -10,6 +10,9 @@ type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?
 const nav: NavItem[] = [
   { to: '/', label: '运行总览', icon: LayoutDashboard, exact: true, permission: 'dashboard.read' },
   { to: '/players', label: '角色管理', icon: Users, permission: 'players.read' },
+  { to: '/accounts', label: '游戏账号', icon: Users, permission: 'accounts.read' },
+  { to: '/admins', label: '管理员与权限', icon: ShieldCheck, permission: 'admins.manage' },
+  { to: '/password', label: '修改密码', icon: ShieldCheck },
   // 全服操作页有两个页签（公告 / 全服邮件），权限也是分开的两条。任一条命中就要
   // 显示入口 —— 只授了全服邮件的运营进来只看得到那一个页签，这是他该看到的结果。
   { to: '/broadcast', label: '全服操作', icon: Megaphone, permissions: ['server.broadcast', 'server.mail_all'] },
@@ -36,6 +39,7 @@ export function can(session: Session | null, permission: string) { return !!sess
 export function canAny(session: Session | null, permissions: string[]) { return permissions.some(permission => can(session, permission)) }
 
 export function Shell({ session }: { session: Session }) {
+  const health = useQuery({ queryKey: ['health'], queryFn: api.health, refetchInterval: 30_000, retry: false })
   const [open, setOpen] = useState(false)
   const navigate = useNavigate(); const location = useLocation(); const queryClient = useQueryClient()
   const logout = async () => {
@@ -53,13 +57,13 @@ export function Shell({ session }: { session: Session }) {
   return <AuthContext.Provider value={session}><div className="app-shell">
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand"><div className="brand-mark"><Boxes size={19} /></div><div><strong>MHQ</strong><span>GM CONSOLE</span></div><button className="icon-btn mobile-only" onClick={() => setOpen(false)} aria-label="关闭导航"><X size={19} /></button></div>
-      <div className="server-chip"><span className="pulse" /><div><b>LOCAL CONTROL</b><small>127.0.0.1:7756</small></div></div>
-      <nav aria-label="主导航">{nav.filter(item => item.permissions ? canAny(session, item.permissions) : can(session, item.permission ?? '')).map(item => { const Icon = item.icon; return <NavLink key={item.to} to={item.to} end={item.exact} onClick={() => setOpen(false)} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18} /><span>{item.label}</span><ChevronRight size={15} className="nav-arrow" /></NavLink> })}</nav>
+      <div className="server-chip"><div><b>局域网游戏服</b><small>{health.data?.publicAddress || '地址暂无数据'}</small></div></div>
+      <nav aria-label="主导航">{nav.filter(item => item.permissions ? canAny(session, item.permissions) : !item.permission || can(session, item.permission)).map(item => { const Icon = item.icon; return <NavLink key={item.to} to={item.to} end={item.exact} onClick={() => setOpen(false)} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18} /><span>{item.label}</span><ChevronRight size={15} className="nav-arrow" /></NavLink> })}</nav>
       <div className="sidebar-footer"><div className="security-note"><ShieldCheck size={16} /><span>受控管理通道<br /><small>审计记录已启用</small></span></div><Button type="button" variant="ghost" className="logout" onClick={logout}><LogOut size={16} />退出登录</Button></div>
     </aside>
     {open ? <button className="sidebar-scrim" onClick={() => setOpen(false)} aria-label="关闭导航" /> : null}
     <main className="main-area">
-      <header className="topbar"><button className="icon-btn mobile-only" onClick={() => setOpen(true)} aria-label="打开导航"><Menu size={20} /></button><div className="breadcrumbs"><span>控制台</span><ChevronRight size={14} /><strong>{current?.label || '页面'}</strong></div><div className="topbar-actions"><span className="live-dot" /> <span className="live-label">服务在线</span><div className="profile"><div className="avatar">{(session.displayName || session.username).slice(0, 1).toUpperCase()}</div><div><b>{session.displayName || session.username}</b><small>{session.roles[0] || 'operator'}</small></div></div></div></header>
+      <header className="topbar"><button className="icon-btn mobile-only" onClick={() => setOpen(true)} aria-label="打开导航"><Menu size={20} /></button><div className="breadcrumbs"><span>控制台</span><ChevronRight size={14} /><strong>{current?.label || '页面'}</strong></div><div className="topbar-actions"><span className="live-label">{health.isLoading ? '检查状态中' : health.isError ? '依赖状态异常' : health.data?.status === 'ok' ? '服务正常' : '状态暂无数据'}</span><div className="profile"><div className="avatar">{(session.displayName || session.username).slice(0, 1).toUpperCase()}</div><div><b>{session.displayName || session.username}</b><small>{session.roles[0] || '暂无角色'}</small></div></div></div></header>
       <div className="content"><Outlet /></div>
     </main>
   </div></AuthContext.Provider>
