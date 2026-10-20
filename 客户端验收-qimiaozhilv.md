@@ -1,0 +1,68 @@
+# qimiaozhilv-client.zip 安全检查、地址修改及玩法验收
+
+状态：**进行中，尚未完成全部玩法验收**。日期：2026-10-20。
+本报告只针对用户明确选择的 `qimiaozhilv-client.zip`，不沿用另一份2026.1.3.2客户端的通过结论。
+
+## 客户端身份及安全检查
+
+- 原ZIP SHA256：`e633bdf9c4f92cabab2a292c3df20b2352585db756cf22b94e9ea37fac115055`。
+- 原始解压目录：`F:\codex\qimiao\client-qimiaozhilv-original\qimiaozhilv-client`，1167文件；原ZIP及原目录保持不改。
+- REA压缩包完整性检查未发现冲突；解压路径检查没有绝对路径、父目录跳转或符号链接。
+- Defender已停用，命令行检测返回0x80004005，**这次扫描没有成功**。本机运行火绒，用户手动扫描后明确回复“扫描完成：0风险”；未提供文件数、病毒库版本或扫描日志。
+- 123个exe/dll中73个Authenticode签名有效（签名者优三缔科技（上海）有限公司），50个未签名。未签名本身不等于病毒，签名也不保证所有行为安全。
+- 与先前原始客户端比较，122个exe/dll相同。不同的Unity.ModelView.dll经解析成员名和控制流比较，387方法中仅PlayRun对三个角色跑步动画的结束条件不同；无新增/删除方法。原始token重排不能算作功能变化。
+- 上述结果支持“已做静态检查、用户反馈火绒未检出风险”，不能保证绝对无毒，也没有完整恶意行为沙箱证明。
+
+详细证据在本机task-records的qimiaozhilv-client-original-sha256.json、qimiaozhilv-client-signatures.json、qimiaozhilv-modelview-resolved-diff.json及REA evidence文件。
+
+## NAS地址及独立回滚
+
+副本：`F:\codex\qimiao\client-qimiaozhilv-nas\梦幻奇遇记.exe`。
+Unity2020.3.49f1c1、协议2.5。仅resources.assets的GlobalProto三个地址字段设为192.168.1.22:7756/本地模式；226个对象标识和其他配置字段保持。
+资源原SHA256 `ba2cc0d6ea9faa7ab9fdbd12f0885ff299f95d26efa77fa681cf9323b04dcf1e`，改址后 `7b5f5beb390c8f5e626a5748fb3b7df6b33e446ef55ec350636132fd84fe7a72`。
+备份为同路径resources.assets.server-address.bak，恢复脚本为副本根目录“恢复原版地址.ps1”。
+新进程路径和实际TCP连接均已核对，连接192.168.1.22:7756；NAS保持R9四健康服务。
+
+## 已取得的实际玩法证据
+
+实际角色#1「9795319」，账号Guie7fd97dd98，是之前建立的测试角色。用户亲自登录，不能把已有角色进入算成新账号注册/创建通过。
+测试期间城镇挂机会自动升级，快照须按时间比较，不能要求等级/经验在数分钟内不变。
+
+| 子项 | 已观察结果 | 存档/证据 |
+| --- | --- | --- |
+| 角色显示及人物面板 | 形象、属性、血蓝可见；仍有一次初始HUD异常待修复复测 | 截图01 |
+| 回城、点击寻路及NPC交互 | Ctrl+G从Boss一层到城镇10004，走到商店后右键打开 | 地图快照及原生窗口 |
+| 普通攻击快捷栏 | 技能页拖到1号格后出现拳头图标 | 最大化窗口可见；重登持久化待验 |
+| 药品使用 | 110305从1→0，生命152921→153421，恢复500 | 快照02、截图02、GoodsBase核对 |
+| 普通商店空数量 | 空数量确认不成交，货币/物品不变 | 快照03/04；其中04采集成功后注销会话曾502，保留该失败 |
+| 普通商店数量1 | 铜55080→54580，药水0→1 | 快照05 |
+| 普通商店数量2 | 铜54580→53580，药水1→3 | 快照06、截图03，已断言 |
+| 代金券商城购买 | 110342紫药+1，代金券减20，其他货币不变 | 快照07 |
+| 元宝商城及现价 | 同商品再+1，元宝100→88，代金券不变；提示原价10/现价12(116%)与实扣相同 | 快照08、截图04 |
+| 商城分类 | 消耗品、原材料、形象、装备、其他均实际点击显示 | 截图05～08；“其他”缺表日志待修 |
+
+快照为实际客户端操作后的只读GM数据，不是协议模拟代替客户端。
+新只读工具`server-mysql/test/capture_client_acceptance.py`仅建立独立GM内存会话、读取指定角色并退出。
+所有私有凭据、快照和截图保存在工作区task-records，不能提交到Git。
+
+## 已定位的两个客户端兼容缺陷
+
+1. `InitHeadInfoEvent.Run`在MyUnit创建前取NumericComponent发生空引用。该包自己的HotfixView有4568方法，修复只在Run前增加6条MyUnit保护指令；保留全部其他方法、定义、原finally区域。
+2. `ServerShopPriceCache.ApplyMarketDescriptions`把Market配置ID当物品ID，打开分类产生MaterialBase缺失记录（修前日志2658条）。该包自己的Hotfix有4669方法，修复只增加Get<MarketBase>(id).ItemId两条指令；所有其他方法与定义保持。
+
+该包的DOMove引用已经与TweenerCore返回值匹配，没有套用旧客户端DOMove修复或替换整套旧DLL。
+两个精确生成器为`tools/prepare_qimiaozhilv_hud.ps1`、`tools/prepare_qimiaozhilv_market.ps1`，严格核对输入SHA，拒绝其他版本。
+打包工具`tools/prepare_qimiaozhilv_compat.py`严格核对两份独立审计的输出SHA；比较10个对象、9份TextAsset，除两DLL外7份TextAsset和其他20条manifest记录保持。
+原包使用明文LoadMethod0且配置包MD5/大小与旧manifest记录不一致；本次只更新改动的配置包记录，保持LoadMethod0，不把它按另一份原包的AES2格式处理。
+
+两项修复已在客户端退出后安装，安装字节与预览相同，**冷启动运行复验仍待完成**。
+修后manifest SHA256：`dec4af2d3b2557c9a6171b12061c541da40be107186df75dc1c1b07698e0df9a`。
+Hotfix SHA256：`6d11f836d56f26e8a441347eed43920c8781a3d62c9270b1c023aeca7199cd7a`。
+HotfixView SHA256：`708bdcd6e971d608cf688356323767eec4022beff3019878bdca0ba3221d0b30`。
+独立恢复脚本为客户端根目录“恢复本次HUD与商城修复.ps1”；退出客户端后执行，会保留NAS地址。
+需要恢复全部原版时先恢复本次HUD/商城，再运行“恢复原版地址.ps1”。原始bundle保留，私有manifest备份均校验后才恢复。
+
+## 尚需完成
+
+冷启动后复查上述异常、已购物品/货币和快捷栏持久化，再继续所有实际开放玩法：注册/角色、战斗与技能、任务奖励、装备成长和宝石、银行仓库、社交/交易/邮件、宠物/星魂、转职转生、家族/Boss、多人副本、竞技排行、签到活动/答题、寄售、形象称号、设置、GM到达和断线重连。
+完整35项初始矩阵及后续发现保存在`F:\codex\qimiao\task-records\qimiaozhilv客户端验收进度.md`，需要逐项补充真实UI和存档证据；目前不能称为“完整玩法验收通过”。
