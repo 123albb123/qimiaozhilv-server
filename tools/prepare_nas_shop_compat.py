@@ -28,6 +28,9 @@ OUTPUT_DLLS = {
  'HotfixView.dll': 'c20d793f00812dd4ea6cb91c4d0a7172ee1dde47779b3469f206c4c080493ebf',
 }
 
+FIRST_SHOP_DLLS = dict(OUTPUT_DLLS)
+OUTPUT_DLLS['Hotfix.dll'] = '16b241bab0734c70b60537da9b9e0834920d55cb3bba1daf9648b89683471772'
+
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def payloads(raw):
  out = {}
@@ -63,7 +66,7 @@ def prepare(client, dll_dir, table_dir, output, install, update_installed=False)
   plain = unpad(AES.new(AES_KEY,AES.MODE_CBC,AES_IV).decrypt(encrypted),16)
   before = payloads(plain); expected = dict(before)
   if 'config' in bundle_name:
-   if any(sha(before[name]) != digest for name,digest in (OUTPUT_DLLS if update_installed else INPUT_DLLS).items()):
+   if any(sha(before[name]) != digest for name,digest in (FIRST_SHOP_DLLS if update_installed else INPUT_DLLS).items()):
     raise ValueError('require original Hotfix and verified projectile/HUD HotfixView')
    expected.update(replacements)
   else:

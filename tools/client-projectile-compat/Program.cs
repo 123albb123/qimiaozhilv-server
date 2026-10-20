@@ -2,6 +2,54 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Security.Cryptography;
 
+if (args.Length == 4 && args[0] == "--repair-market-description") {
+    var descInput = Path.GetFullPath(args[1]);
+    var descOutput = Path.GetFullPath(args[2]);
+    if (File.Exists(descOutput)) throw new InvalidOperationException("output must be new");
+    if (Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(descInput))).ToLowerInvariant() !=
+        "59867c35054c16247f69902a097fc9b87be90ef9829ab73258d052afce6c22ae")
+        throw new InvalidOperationException("expected the audited first shop compatibility DLL");
+    var descResolver = new GameAssemblyResolver(Path.GetDirectoryName(descInput)!);
+    descResolver.AddSearchDirectory(Path.GetFullPath(args[3]));
+    using var descModule = ModuleDefinition.ReadModule(descInput, new ReaderParameters { AssemblyResolver = descResolver });
+    var descBefore = Bodies(descModule);
+    var descDefinitions = Definitions(descModule);
+    var descMethod = Types(descModule.Types).Single(t => t.FullName == "ET.ServerShopPriceCache")
+        .Methods.Single(m => m.Name == "ApplyMarketDescriptions");
+    var descShape = FlowShape(descMethod);
+    var getId = descMethod.Body.Instructions.Single(i => i.Operand is MethodReference m &&
+        m.Name == "get_Item" && m.DeclaringType is GenericInstanceType list && list.GenericArguments.Single().FullName == "System.Int32");
+    var marketType = Types(descModule.Types).Single(t => t.FullName == "Cal.DataTable.MarketBase");
+    var marketItem = marketType.Fields.Single(f => f.Name == "ItemId");
+    var getDefinition = Types(descModule.Types).Single(t => t.FullName == "ET.DataTableHelper").Methods.Single(m =>
+        m.Name == "Get" && m.GenericParameters.Count == 1 && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.FullName == "System.Int32");
+    var getMarket = new GenericInstanceMethod(getDefinition);
+    getMarket.GenericArguments.Add(marketType);
+    var descIl = descMethod.Body.GetILProcessor();
+    var readMarket = Instruction.Create(OpCodes.Call, getMarket);
+    var readItem = Instruction.Create(OpCodes.Ldfld, marketItem);
+    descIl.InsertAfter(getId, readMarket);
+    descIl.InsertAfter(readMarket, readItem);
+    descModule.Write(descOutput, new WriterParameters { WriteSymbols = false });
+    using var descVerified = ModuleDefinition.ReadModule(descOutput, new ReaderParameters { AssemblyResolver = descResolver });
+    var descAfter = Bodies(descVerified);
+    if (descDefinitions != Definitions(descVerified) || descModule.Mvid != descVerified.Mvid ||
+        !descBefore.Keys.Order().SequenceEqual(descAfter.Keys.Order()) ||
+        !descBefore.Keys.Where(k => descBefore[k] != descAfter[k]).SequenceEqual(new[] { descMethod.FullName }))
+        throw new InvalidOperationException("changed unrelated definitions or method bodies");
+    var verifiedDesc = Types(descVerified.Types).Single(t => t.FullName == "ET.ServerShopPriceCache")
+        .Methods.Single(m => m.Name == "ApplyMarketDescriptions");
+    var insertedRead = verifiedDesc.Body.Instructions.Single(i => i.Operand is GenericInstanceMethod m && m.Name == "Get" && m.GenericArguments[0].FullName == marketType.FullName);
+    var insertedItem = verifiedDesc.Body.Instructions[verifiedDesc.Body.Instructions.IndexOf(insertedRead)+1];
+    if (insertedItem.OpCode != OpCodes.Ldfld || ((FieldReference)insertedItem.Operand).FullName != marketItem.FullName)
+        throw new InvalidOperationException("unexpected item-ID projection");
+    verifiedDesc.Body.Instructions.Remove(insertedRead);
+    verifiedDesc.Body.Instructions.Remove(insertedItem);
+    if (FlowShape(verifiedDesc) != descShape) throw new InvalidOperationException("changed original description control flow");
+    Console.WriteLine("Validated: only two instructions added to project MarketBase configuration ID to ItemId before applying its description");
+    Console.WriteLine("Output SHA256: " + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(descOutput))).ToLowerInvariant());
+    return;
+}
 if (args.Length == 3 && args[0] == "--audit-shop") {
     using var oldShop = ModuleDefinition.ReadModule(args[1]);
     using var newShop = ModuleDefinition.ReadModule(args[2]);
