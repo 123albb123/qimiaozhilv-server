@@ -169,6 +169,64 @@ func TestAdminLifecycleMySQL(t *testing.T) {
 	if len(seen) != 6 {
 		t.Fatalf("command pagination lost rows: %v", seen)
 	}
+	// A configuration, its previous snapshot, and its audit must move as one
+	// transaction. These synthetic rows exist only in this dedicated test DB.
+	initial := []any{[]any{int64(1), map[string]any{"Name": "Original", "Price": int64(10)}}}
+	if _, err := replaceGMConfig(context.Background(), db, "ShopBase", initial, "fixture", "test fixture"); err != nil {
+		t.Fatal(err)
+	}
+	res = call("/api/v1/configs/ShopBase/drafts", "POST", map[string]string{"contentYaml": "- [1, {Name: Original, Price: 10}]", "baseRevision": "9007199254740993"}, rootCookies, rootCSRF)
+	if res.Code != 201 || !strings.Contains(res.Body.String(), `"baseRevision":"9007199254740993"`) {
+		t.Fatalf("browser string revision draft failed: %d %s", res.Code, res.Body.String())
+	}
+	res = call("/api/v1/configs/ShopBase/publish", "POST", map[string]string{"contentYaml": "[]", "note": "must reject"}, rootCookies, rootCSRF)
+	if res.Code != 422 {
+		t.Fatalf("empty config accepted: %d %s", res.Code, res.Body.String())
+	}
+	res = call("/api/v1/configs/ShopBase/publish", "POST", map[string]string{"contentYaml": "- [1, {Name: Updated, Price: 20}]", "note": "valid config test"}, rootCookies, rootCSRF)
+	if res.Code != 200 || !strings.Contains(res.Body.String(), `"reloadStatus":"notification_failed"`) {
+		t.Fatalf("missing Redis was reported as applied: %d %s", res.Code, res.Body.String())
+	}
+	var baseline int64
+	if err := db.QueryRow(`SELECT MIN(revision) FROM gm_config_snapshots WHERE config_name='ShopBase'`).Scan(&baseline); err != nil || baseline == 0 {
+		t.Fatalf("original snapshot missing: %d %v", baseline, err)
+	}
+	res = call(fmt.Sprintf("/api/v1/configs/ShopBase/revisions/%d/rollback", baseline), "POST", map[string]string{"note": "restore fixture"}, rootCookies, rootCSRF)
+	if res.Code != 200 {
+		t.Fatalf("rollback: %d %s", res.Code, res.Body.String())
+	}
+	assertOriginal := func() {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM game_config_nodes WHERE config_name='ShopBase' AND field_name='Name' AND string_value='Original'`).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("original configuration not preserved: %d %v", count, err)
+		}
+	}
+	assertOriginal()
+	var beforeRevisions, afterRevisions int
+	db.QueryRow(`SELECT COUNT(*) FROM game_config_revisions`).Scan(&beforeRevisions)
+	res = call("/api/v1/configs/ShopBase/publish", "POST", map[string]string{"contentYaml": "- [1, {Name: Original, Price: 10}]", "note": "retry same value"}, rootCookies, rootCSRF)
+	if res.Code != 200 {
+		t.Fatalf("same-value retry: %d %s", res.Code, res.Body.String())
+	}
+	db.QueryRow(`SELECT COUNT(*) FROM game_config_revisions`).Scan(&afterRevisions)
+	if afterRevisions != beforeRevisions {
+		t.Fatal("same-value submission created another configuration revision")
+	}
+	if _, err := db.Exec(`CREATE TRIGGER test_deny_config_snapshot BEFORE INSERT ON gm_config_snapshots FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected snapshot failure'`); err != nil {
+		t.Fatal(err)
+	}
+	res = call("/api/v1/configs/ShopBase/publish", "POST", map[string]string{"contentYaml": "- [1, {Name: Rejected, Price: 30}]", "note": "injected snapshot failure"}, rootCookies, rootCSRF)
+	if res.Code != 500 {
+		t.Fatalf("snapshot failure returned success: %d %s", res.Code, res.Body.String())
+	}
+	assertOriginal()
+	db.QueryRow(`SELECT COUNT(*) FROM game_config_revisions`).Scan(&afterRevisions)
+	if afterRevisions != beforeRevisions {
+		t.Fatal("failed transaction left a configuration revision")
+	}
+	if _, err := db.Exec(`DROP TRIGGER test_deny_config_snapshot`); err != nil {
+		t.Fatal(err)
+	}
 	rows, err := db.QueryContext(context.Background(), `SELECT CONCAT(COALESCE(before_json,''),COALESCE(after_json,'')) FROM gm_audit_logs WHERE action IN ('admin.save','auth.password')`)
 	if err != nil {
 		t.Fatal(err)

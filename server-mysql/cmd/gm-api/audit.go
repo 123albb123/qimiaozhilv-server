@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type auditRecord struct {
@@ -68,6 +69,9 @@ func truncate(value string, max int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= max {
 		return value
+	}
+	for max > 0 && !utf8.ValidString(value[:max]) {
+		max--
 	}
 	return value[:max]
 }

@@ -139,9 +139,11 @@ func watchConfigReload(ctx context.Context, db *sql.DB, cache *RedisCache) {
 				continue
 			}
 			if err := reloadRuntimeConfig(db); err != nil {
+				recordConfigRuntimeStatus(ctx, cache, revision, err)
 				log.Printf("config reload revision=%d names=%v failed; old snapshot kept: %v", revision, names, err)
 				continue
 			}
+			recordConfigRuntimeStatus(ctx, cache, revision, nil)
 			log.Printf("config reloaded revision=%d names=%v", revision, names)
 		}
 	}

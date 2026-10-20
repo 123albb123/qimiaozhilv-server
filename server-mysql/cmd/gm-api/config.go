@@ -17,13 +17,13 @@ import (
 )
 
 var editableGMConfigs = map[string]bool{
-	"Gameplay": true, "ShopBase": true, "MarketBase": true, "MultiShop": true,
+	"Gameplay": true, "AffixWash": true, "ShopBase": true, "MarketBase": true, "MultiShop": true,
 	"ActivePerDayConfig": true, "WorldBossConfig": true, "FamilyBossConfig": true, "CustomSkins": true,
 }
 
 type configDraftRequest struct {
-	ContentYAML  string `json:"contentYaml"`
-	BaseRevision int64  `json:"baseRevision"`
+	ContentYAML  string        `json:"contentYaml"`
+	BaseRevision revisionInput `json:"baseRevision"`
 }
 
 func (a *App) handleConfigs(w http.ResponseWriter, r *http.Request, rid string, session *sessionData) {
@@ -42,6 +42,26 @@ func (a *App) handleConfigs(w http.ResponseWriter, r *http.Request, rid string, 
 		return
 	}
 	name := parts[0]
+	if len(parts) == 2 && parts[1] == "reload" && r.Method == http.MethodGet {
+		if !hasPermission(session, "configs.read") {
+			writeError(w, 403, rid, "forbidden", "没有配置查询权限")
+			return
+		}
+		if a.redis == nil {
+			writeJSON(w, 200, rid, map[string]string{"status": "unavailable"}, nil)
+			return
+		}
+		state, err := a.redis.HGetAll(r.Context(), "mhq:config:runtime").Result()
+		if err != nil {
+			writeError(w, 503, rid, "redis_unavailable", "游戏服配置状态暂不可用")
+			return
+		}
+		if len(state) == 0 {
+			state = map[string]string{"status": "unavailable"}
+		}
+		writeJSON(w, 200, rid, state, nil)
+		return
+	}
 	if len(parts) == 1 && r.Method == http.MethodGet {
 		if !hasPermission(session, "configs.read") {
 			writeError(w, http.StatusForbidden, rid, "forbidden", "没有配置查询权限")
@@ -185,7 +205,7 @@ func (a *App) createDraft(w http.ResponseWriter, r *http.Request, rid, name stri
 		return
 	}
 	draftID, _ := result.LastInsertId()
-	writeJSON(w, http.StatusCreated, rid, map[string]any{"draftId": strconvI64(draftID), "name": name, "contentHash": hash, "baseRevision": strconvI64(req.BaseRevision)}, nil)
+	writeJSON(w, http.StatusCreated, rid, map[string]any{"draftId": strconvI64(draftID), "name": name, "contentHash": hash, "baseRevision": strconvI64(int64(req.BaseRevision))}, nil)
 }
 
 func (a *App) getDraft(w http.ResponseWriter, r *http.Request, rid, name string, draftID int64) {
@@ -245,21 +265,13 @@ func (a *App) publishConfig(w http.ResponseWriter, r *http.Request, rid, name st
 	}
 	ctx, cancel := a.requestContext(r)
 	defer cancel()
-	revision, err := replaceGMConfig(ctx, a.db, name, value, session.Username, req.Note)
+	revision, hash, err := a.commitConfig(ctx, r, rid, name, value, req.Note, session, "config.publish", req.DraftID)
 	if err != nil {
 		writeError(w, 500, rid, "publish_failed", "配置发布失败")
 		return
 	}
-	hash := fmt.Sprintf("%x", sha256Bytes([]byte(req.ContentYAML)))
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO gm_config_snapshots (revision, config_name, content_yaml, content_hash, publisher, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, revision, name, req.ContentYAML, hash, session.Username, req.Note, time.Now().Unix())
-	if a.redis != nil {
-		_ = a.redis.Publish(ctx, "mhq:config:reload", fmt.Sprintf("%d|%s", revision, name)).Err()
-	}
-	if req.DraftID > 0 {
-		_, _ = a.db.ExecContext(ctx, `UPDATE gm_config_drafts SET status = 'published', updated_at = ? WHERE draft_id = ?`, time.Now().Unix(), req.DraftID)
-	}
-	_ = a.writeAudit(ctx, auditRecord{RequestID: rid, AdminID: session.AdminID, Action: "config.publish", TargetType: "config", TargetID: name, Reason: req.Note, Result: "completed", ClientIP: clientIP(r), UserAgent: r.UserAgent()})
-	writeJSON(w, http.StatusOK, rid, map[string]any{"name": name, "revision": strconvI64(revision), "contentHash": hash}, nil)
+	reloadStatus, message := a.notifyConfigReload(ctx, revision, name)
+	writeJSON(w, http.StatusOK, rid, map[string]any{"name": name, "revision": strconvI64(revision), "contentHash": hash, "reloadStatus": reloadStatus, "message": message}, nil)
 }
 
 func (a *App) configRevisions(w http.ResponseWriter, r *http.Request, rid, name string) {
@@ -302,17 +314,13 @@ func (a *App) rollbackConfig(w http.ResponseWriter, r *http.Request, rid, name s
 		writeError(w, 422, rid, "config_invalid", "快照校验失败")
 		return
 	}
-	newRevision, err := replaceGMConfig(ctx, a.db, name, value, session.Username, fmt.Sprintf("rollback from %d", revision))
+	newRevision, hash, err := a.commitConfig(ctx, r, rid, name, value, fmt.Sprintf("rollback from %d", revision), session, "config.rollback", 0)
 	if err != nil {
 		writeError(w, 500, rid, "rollback_failed", "配置回滚失败")
 		return
 	}
-	hash := fmt.Sprintf("%x", sha256Bytes([]byte(yamlText)))
-	_, _ = a.db.ExecContext(ctx, `INSERT INTO gm_config_snapshots (revision, config_name, content_yaml, content_hash, publisher, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, newRevision, name, yamlText, hash, session.Username, fmt.Sprintf("rollback from %d", revision), time.Now().Unix())
-	if a.redis != nil {
-		_ = a.redis.Publish(ctx, "mhq:config:reload", fmt.Sprintf("%d|%s", newRevision, name)).Err()
-	}
-	writeJSON(w, 200, rid, map[string]any{"name": name, "revision": strconvI64(newRevision), "rolledBackFrom": strconvI64(revision)}, nil)
+	reloadStatus, message := a.notifyConfigReload(ctx, newRevision, name)
+	writeJSON(w, 200, rid, map[string]any{"name": name, "revision": strconvI64(newRevision), "rolledBackFrom": strconvI64(revision), "contentHash": hash, "reloadStatus": reloadStatus, "message": message}, nil)
 }
 
 func parseConfigYAML(text string) (any, error) {
@@ -363,29 +371,59 @@ func validateGMConfig(name string, value any) error {
 		_, err := operationsconfig.Decode(value)
 		return err
 	}
+	if name == "AffixWash" {
+		_, err := operationsconfig.DecodeAffixWash(value)
+		return err
+	}
 	if name == "CustomSkins" {
-		root, ok := value.(map[string]any)
-		if !ok || len(root) == 0 {
-			return errors.New("CustomSkins must be an object")
-		}
-		return nil
+		return errors.New("自定义外观须使用现有 publish-custom-skins 专用发布流程，普通配置发布不能替代跨表校验")
 	}
 	rows, ok := value.([]any)
 	if !ok {
 		return errors.New("datatable root must be an array")
 	}
-	if len(rows) > 100000 {
-		return errors.New("too many rows")
+	if len(rows) == 0 || len(rows) > 100000 {
+		return errors.New("配置表不能为空且不能超过 100000 行")
+	}
+	seen := map[int64]bool{}
+	for index, raw := range rows {
+		pair, ok := raw.([]any)
+		if !ok || len(pair) != 2 {
+			return fmt.Errorf("第 %d 行须为 [ID, 对象]", index+1)
+		}
+		id, ok := pair[0].(int64)
+		if !ok || id < 0 || id > 2147483647 || seen[id] {
+			return fmt.Errorf("第 %d 行 ID 无效或重复", index+1)
+		}
+		object, ok := pair[1].(map[string]any)
+		if !ok || len(object) == 0 {
+			return fmt.Errorf("第 %d 行内容须为非空对象", index+1)
+		}
+		seen[id] = true
 	}
 	return nil
 }
 
 func replaceGMConfig(ctx context.Context, db *sql.DB, name string, value any, publisher, note string) (int64, error) {
+	if err := validateGMConfig(name, value); err != nil {
+		return 0, err
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+	revision, err := replaceGMConfigTx(ctx, tx, name, value, publisher, note)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision, nil
+}
+
+func replaceGMConfigTx(ctx context.Context, tx *sql.Tx, name string, value any, publisher, note string) (int64, error) {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM game_config_nodes WHERE config_name = ?`, name); err != nil {
 		return 0, err
 	}
@@ -406,16 +444,13 @@ func replaceGMConfig(ctx context.Context, db *sql.DB, name string, value any, pu
 	} else if _, err := insertGMNode(ctx, tx, name, 0, "", -1, value); err != nil {
 		return 0, err
 	}
-	note = "[GM:" + name + "] " + truncate(note, 240)
+	note = truncate("[GM:"+name+"] "+strings.TrimSpace(note), 255)
 	result, err := tx.ExecContext(ctx, `INSERT INTO game_config_revisions (published_at, publisher, note) VALUES (?, ?, ?)`, time.Now().Unix(), publisher, note)
 	if err != nil {
 		return 0, err
 	}
 	revision, err := result.LastInsertId()
 	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return revision, nil
@@ -479,7 +514,15 @@ func classifyGMValue(value any) (int, int, any, any, any, any) {
 }
 
 func (a *App) readConfig(ctx context.Context, name string) (any, error) {
-	rows, err := a.db.QueryContext(ctx, `SELECT node_id, parent_id, field_name, array_index, node_kind, value_type, int_value, float_value, string_value, bool_value FROM game_config_nodes WHERE config_name = ? ORDER BY node_id`, name)
+	return readConfigWith(ctx, a.db, name)
+}
+
+type configQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func readConfigWith(ctx context.Context, source configQueryer, name string) (any, error) {
+	rows, err := source.QueryContext(ctx, `SELECT node_id, parent_id, field_name, array_index, node_kind, value_type, int_value, float_value, string_value, bool_value FROM game_config_nodes WHERE config_name = ? ORDER BY node_id`, name)
 	if err != nil {
 		return nil, err
 	}
@@ -493,6 +536,9 @@ func (a *App) readConfig(ctx context.Context, name string) (any, error) {
 		}
 		nodes[n.id] = n
 		children[n.parent] = append(children[n.parent], n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if len(nodes) == 0 {
 		return nil, sql.ErrNoRows

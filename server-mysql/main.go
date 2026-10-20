@@ -124,11 +124,13 @@ func main() {
 	log.Printf("AffixWash config loaded: empty=%.2f%% six-dim=%.2f%% six-dim-full=%.2f%% tiers=%v",
 		loadedAffixWash.Affix.EmptyPercent, loadedAffixWash.Affix.SixDimensionPercent,
 		loadedAffixWash.Affix.SixDimensionFullPercent, loadedAffixWash.Affix.SixDimensionTiers)
-	if revision, revisionErr := latestConfigRevision(st.db); revisionErr == nil {
-		log.Printf("configuration revision=%d", revision)
+	loadedRevision, revisionErr := latestConfigRevision(st.db)
+	if revisionErr == nil {
+		log.Printf("configuration revision=%d", loadedRevision)
 	}
 	reloadCtx, cancelReload := context.WithCancel(context.Background())
 	defer cancelReload()
+	startConfigRuntimeReporter(reloadCtx, cache, loadedRevision)
 	go watchConfigReload(reloadCtx, st.db, cache)
 	if *watchConfig {
 		go startConfigFileWatcher(reloadCtx, *watchConfigDir, st.db, cache,
