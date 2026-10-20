@@ -10,6 +10,7 @@ func vitalSyncParty(t *testing.T) (*Server, *channel, *channel, map[int64]*recor
 	t.Helper()
 	loadOnlineTablesForTest(t)
 	server := &Server{conns: map[int64]*channel{}}
+	cleanupGameTestServer(t, server)
 	conns := map[int64]*recordingConn{}
 	add := func(playerID int64) *channel {
 		ss := newSession()
@@ -41,6 +42,35 @@ func vitalSyncParty(t *testing.T) (*Server, *channel, *channel, map[int64]*recor
 // waitTeamVitalSync 等补推落地（合并间隔 50ms，留足余量）。
 func waitTeamVitalSync() { time.Sleep(4 * teamVitalSyncDelay) }
 
+func TestTeamVitalTimerWaitsForAuthoritativeBattleSnapshot(t *testing.T) {
+	server, fighter, _, conns := vitalSyncParty(t)
+	ss := fighter.session
+	ss.battleMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			ss.battleMu.Unlock()
+		}
+	}()
+	server.scheduleTeamVitalSync(fighter)
+	waitTeamVitalSync()
+	if len(conns[4202].Bytes()) != 0 {
+		t.Fatal("vital timer published values while the battle writer still owned the snapshot")
+	}
+	ss.hp, ss.mp = 7, 9
+	ss.battleMu.Unlock()
+	locked = false
+	deadline := time.Now().Add(2 * time.Second)
+	for len(conns[4202].Bytes()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	waitTeamVitalSync()
+	pushes := recordedVitals(t, conns[4202].Bytes())
+	if hp, mp := vitalsFor(pushes, 4201, 1001), vitalsFor(pushes, 4201, 1003); len(hp) != 1 || len(mp) != 1 || hp[0] != 7 || mp[0] != 9 {
+		t.Fatalf("timer did not publish the completed snapshot: HP=%v MP=%v", hp, mp)
+	}
+}
+
 func TestScheduleTeamVitalSyncPushesAuthoritativeVitalsToTeammate(t *testing.T) {
 	server, fighter, _, conns := vitalSyncParty(t)
 	// 战斗收尾写回的残血：只在会话里改血蓝，不推给任何人。
@@ -66,6 +96,7 @@ func TestScheduleTeamVitalSyncCoalescesBurstsAndReadsLatestValue(t *testing.T) {
 	maxHP := fighter.session.playerMaxHp()
 
 	// 模拟一次单人战斗里连续挨打：每次都改血并请求补推。
+	fighter.session.battleMu.Lock()
 	for _, hp := range []int32{maxHP - 1, maxHP - 10, maxHP - 100} {
 		fighter.session.hp = hp
 		for i := 0; i < 20; i++ {
@@ -74,6 +105,7 @@ func TestScheduleTeamVitalSyncCoalescesBurstsAndReadsLatestValue(t *testing.T) {
 	}
 	fighter.session.hp = maxHP - 150
 	server.scheduleTeamVitalSync(fighter)
+	fighter.session.battleMu.Unlock()
 	waitTeamVitalSync()
 
 	pushes := recordedVitals(t, conns[4202].Bytes())

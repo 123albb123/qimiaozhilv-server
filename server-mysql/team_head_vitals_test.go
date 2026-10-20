@@ -60,6 +60,7 @@ func teamHeadTestParty(t *testing.T) (*Server, *channel, []int64, map[int64]*rec
 	t.Helper()
 	loadOnlineTablesForTest(t)
 	server := &Server{conns: map[int64]*channel{}}
+	cleanupGameTestServer(t, server)
 	conns := map[int64]*recordingConn{}
 	add := func(playerID int64, hurt bool) *channel {
 		ss := newSession()

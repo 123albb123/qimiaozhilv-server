@@ -42,7 +42,13 @@ func (s *Server) scheduleTeamHeadVitalReload(ch *channel, unitIDs []int64) {
 	gen := ch.teamHeadReloadGen.Add(1)
 	snapshot := append([]int64(nil), unitIDs...)
 	for _, delay := range teamHeadVitalReloadDelays {
-		time.AfterFunc(delay, func() { s.reloadTeamHeadVitals(ch, snapshot, gen) })
+		time.AfterFunc(delay, func() {
+			configStateMu.RLock()
+			defer configStateMu.RUnlock()
+			if !s.closed.Load() {
+				s.reloadTeamHeadVitals(ch, snapshot, gen)
+			}
+		})
 	}
 }
 
@@ -67,12 +73,15 @@ func (s *Server) reloadTeamHeadVitals(ch *channel, unitIDs []int64, gen uint64) 
 		if !s.scenePlayerVisibleTo(ch, member) {
 			continue
 		}
-		maxHP := member.session.playerMaxHp()
+		ss := member.session
+		ss.battleMu.Lock()
+		hp, mp, maxHP, maxMP := ss.battleHP(), ss.battleMP(), ss.playerMaxHp(), ss.playerMaxMp()
+		ss.battleMu.Unlock()
 		if maxHP <= 0 {
 			continue
 		}
-		s.sendTeamHeadNudgedVital(ch, unitID, 1001, member.session.battleHP(), maxHP, actor)
-		s.sendTeamHeadNudgedVital(ch, unitID, 1003, member.session.battleMP(), member.session.playerMaxMp(), actor)
+		s.sendTeamHeadNudgedVital(ch, unitID, 1001, hp, maxHP, actor)
+		s.sendTeamHeadNudgedVital(ch, unitID, 1003, mp, maxMP, actor)
 	}
 }
 

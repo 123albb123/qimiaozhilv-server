@@ -50,11 +50,18 @@ func (s *Server) pushTeamVitals(ch *channel, hp, mp int32) {
 	if s == nil || ch == nil || ch.session == nil {
 		return
 	}
+	ch.session.battleMu.Lock()
+	maxHP := ch.session.playerMaxHp()
+	ch.session.battleMu.Unlock()
+	s.pushTeamVitalsSnapshot(ch, hp, mp, maxHP)
+}
+
+func (s *Server) pushTeamVitalsSnapshot(ch *channel, hp, mp, maxHP int32) {
 	unitID := ch.session.playerID
 	if unitID == 0 {
 		return
 	}
-	s.syncTeamHeadHP(unitID, hp, ch.session.playerMaxHp())
+	s.syncTeamHeadHP(unitID, hp, maxHP)
 	for _, member := range s.teamMemberChannels(unitID) {
 		if member == ch {
 			continue
@@ -91,6 +98,8 @@ func (s *Server) scheduleTeamVitalSync(target *channel) {
 		return
 	}
 	time.AfterFunc(teamVitalSyncDelay, func() {
+		configStateMu.RLock()
+		defer configStateMu.RUnlock()
 		target.teamVitalSyncPending.Store(false)
 		if s.closed.Load() {
 			return
@@ -103,6 +112,11 @@ func (s *Server) scheduleTeamVitalSync(target *channel) {
 		if s.findChannelByPlayerID(ss.playerID) != target {
 			return
 		}
-		s.pushTeamVitals(target, ss.battleHP(), ss.battleMP())
+		ss.battleMu.Lock()
+		hp, mp, maxHP := ss.battleHP(), ss.battleMP(), ss.playerMaxHp()
+		ss.battleMu.Unlock()
+		// Do not acquire teamMu until the player snapshot is complete and its
+		// lock is released: map-follow uses the opposite team -> battle order.
+		s.pushTeamVitalsSnapshot(target, hp, mp, maxHP)
 	})
 }
