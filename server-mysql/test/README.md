@@ -121,3 +121,7 @@ GM测试密码只用私有env-file注入；快照含一次性测试凭据，不�
 `verify_compact_gm.py` 验证合并GM网页/API后的真实HTTP与游戏TCP链路：SPA深链接、JS/CSS、登录Cookie、同源CSRF、在线发放幂等、中文邮件和领取附件。
 必须显式设置 `MHQ_COMPACT_ALLOW_ISOLATED=1`，在隔离游戏的网络命名空间内运行；`MHQ_COMPACT_GM_URL` 的健康版本必须以 `isolated-` 开头。
 普通管理员凭据只从私有env-file提供 `GM_ADMIN_USERNAME` / `GM_ADMIN_PASSWORD`，不要放入命令行或日志。测试会新建自己的普通角色并只写隔离库。
+
+`capture_client_acceptance.py --credentials 私有env文件 --player 测试角色ID --output 新快照.json`
+仅收集已授权NAS上指定角色的只读GM状态，为实际客户端操作的物品/货币/存档对账提供证据。
+它使用独立内存会话并退出，凭据及快照不得提交Git；不会代替客户端游玩或把服务端读取当作UI验收通过。
