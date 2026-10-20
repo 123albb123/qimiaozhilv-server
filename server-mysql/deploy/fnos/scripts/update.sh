@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build/import all three application images plus tools under a new tag first.
+# Build/import the current layout's application images and tools first.
 set -eu
 umask 077
 test "$#" = 1 || { echo 'Usage: update.sh NEW_IMAGE_TAG' >&2; exit 2; }
@@ -7,7 +7,10 @@ tag=$1
 case "$tag" in ''|*[!A-Za-z0-9_.-]*) echo 'Invalid image tag' >&2; exit 2;; esac
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$script_dir/common.sh"
-for image in qimiao-game qimiao-gm-api qimiao-gm-web qimiao-tools; do docker image inspect "$image:$tag" >/dev/null; done
+compose config --quiet
+images=$(project_application_images)
+test -n "$images"
+for image in $images; do docker image inspect "${image%:*}:$tag" >/dev/null; done
 sh "$script_dir/backup.sh"
 previous=$(sed -n 's/^MHQ_IMAGE_TAG=//p' "$root/.env")
 test -n "$previous"
@@ -18,7 +21,8 @@ cp "$root/.env" "$saved"
 # never touched. Do this before replacing the deployment's version tag.
 raw_images="$root/backups/qimiao-images-$stamp.tar.partial"
 trap 'rm -f "$raw_images"' EXIT HUP INT TERM
-docker image save -o "$raw_images" "qimiao-game:$previous" "qimiao-gm-api:$previous" "qimiao-gm-web:$previous" "qimiao-tools:$previous"
+set -- $images
+docker image save -o "$raw_images" "$@"
 tar -tf "$raw_images" | grep -q '^manifest.json$'
 gzip -c "$raw_images" > "$root/backups/qimiao-images-$stamp.tar.gz"
 gzip -t "$root/backups/qimiao-images-$stamp.tar.gz"

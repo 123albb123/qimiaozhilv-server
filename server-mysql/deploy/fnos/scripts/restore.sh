@@ -15,7 +15,8 @@ test -f "$stem.sha256"
 (cd "$root/backups" && sha256sum -c "$(basename "$stem.sha256")")
 gzip -t "$backup"
 sh "$script_dir/backup.sh"
-compose stop gm-web gm-api game
+apps=$(application_services)
+compose stop $apps
 raw=$(mktemp "$root/backups/restore-XXXXXX")
 trap 'rm -f "$raw"' EXIT HUP INT TERM
 gzip -dc "$backup" > "$raw"
@@ -26,6 +27,7 @@ fi
 # This Redis belongs exclusively to this Compose project. Old login/session
 # markers and pending commands cannot safely be replayed into an older DB.
 compose exec -T redis redis-cli FLUSHDB >/dev/null
-compose run --rm --no-deps init
-compose up -d --no-build --wait game gm-api gm-web
+if has_service init; then compose run --rm --no-deps init; fi
+# Compact game/API entrypoints run the same importer and admin initializer.
+compose up -d --no-build --wait $apps
 printf 'Database restored and project health checks passed: %s\n' "$backup"
