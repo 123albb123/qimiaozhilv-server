@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 func main() {
@@ -29,6 +30,7 @@ func main() {
 		if err = yaml.Unmarshal(raw, &rows); err != nil {
 			panic(err)
 		}
+		sort.Slice(rows, func(i, j int) bool { return rows[i][0].(int) < rows[j][0].(int) })
 		encoded, err := json.MarshalIndent(rows, "", "  ")
 		if err != nil {
 			panic(err)

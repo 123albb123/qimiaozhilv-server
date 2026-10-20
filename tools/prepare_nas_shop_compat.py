@@ -37,12 +37,15 @@ def payloads(raw):
    out[item.m_Name] = val.encode('utf8', errors='surrogateescape') if isinstance(val, str) else bytes(val)
  return out
 
-def prepare(client, dll_dir, table_dir, output, install):
+def prepare(client, dll_dir, table_dir, output, install, update_installed=False):
  data_dirs = list(client.glob('*_Data'))
  if len(data_dirs) != 1: raise ValueError('require one Unity Data directory')
  aa0 = data_dirs[0] / 'StreamingAssets/yoo/aa0'
  manifest_path = aa0 / MANIFEST
  original_manifest = manifest_path.read_bytes()
+ if update_installed and sha(original_manifest) != 'f5341dd4d64e13f9449eb6e577856b6eac267ea9335d41b0215027a57b30982b':
+  raise ValueError('installed-order repair requires the independently verified first NAS shop pack')
+ backup_suffix = '.nas-shop-order.bak' if update_installed else '.nas-shop.bak'
  original_hash = manifest_path.with_suffix('.hash').read_bytes()
  if original_hash.decode('ascii').strip() != hashlib.md5(original_manifest).hexdigest():
   raise ValueError('current manifest hash mismatch')
@@ -60,18 +63,20 @@ def prepare(client, dll_dir, table_dir, output, install):
   plain = unpad(AES.new(AES_KEY,AES.MODE_CBC,AES_IV).decrypt(encrypted),16)
   before = payloads(plain); expected = dict(before)
   if 'config' in bundle_name:
-   if any(sha(before[name]) != digest for name,digest in INPUT_DLLS.items()):
+   if any(sha(before[name]) != digest for name,digest in (OUTPUT_DLLS if update_installed else INPUT_DLLS).items()):
     raise ValueError('require original Hotfix and verified projectile/HUD HotfixView')
    expected.update(replacements)
   else:
-   if record['hash'] != '87c13c7e72546d4e4e0960392e451498': raise ValueError('unsupported datatable build')
+   if not update_installed and record['hash'] != '87c13c7e72546d4e4e0960392e451498': raise ValueError('unsupported datatable build')
    for name in ['MarketBase','ShopBase']:
     original_rows = json.loads(re.sub(r',\s*([\]}])',r'\1',zlib.decompress(base64.b64decode(before[name])).decode('utf8')))
     rows = json.loads((table_dir/(name+'.json')).read_text(encoding='utf8'))
+    rows.sort(key=lambda row: int(row[0]))
     by_id = dict(rows)
     if len(by_id)!=len(rows) or any(int(k)!=int(v['_id']) for k,v in rows): raise ValueError('invalid exported row IDs')
+    if update_installed and by_id != dict(original_rows): raise ValueError('installed order repair must preserve every shop row value')
     if not set(dict(original_rows)).issubset(by_id): raise ValueError('export deleted original client shop rows')
-    if name=='MarketBase' and set(by_id)-set(dict(original_rows))!={10033}: raise ValueError('unexpected new market IDs')
+    if name=='MarketBase' and set(by_id)-set(dict(original_rows)) != (set() if update_installed else {10033}): raise ValueError('unexpected new market IDs')
     encoded = json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode('utf8')
     expected[name] = base64.b64encode(zlib.compress(encoded))
     changes[name] = {'beforeRows':len(original_rows),'afterRows':len(rows)}
@@ -97,32 +102,32 @@ def prepare(client, dll_dir, table_dir, output, install):
  report={'inputManifestSha256':sha(original_manifest),'outputManifestSha256':sha(manifest),'dllSha256':OUTPUT_DLLS,'tables':changes,'loadMethod':2,'installed':install}
  if install:
   paths=[manifest_path,manifest_path.with_suffix('.hash')]
-  if any(p.with_name(p.name+'.nas-shop.bak').exists() for p in paths): raise ValueError('existing shop backup; restore first')
-  for p in paths: shutil.copy2(p,p.with_name(p.name+'.nas-shop.bak'))
+  if any(p.with_name(p.name+backup_suffix).exists() for p in paths): raise ValueError('existing shop backup; restore first')
+  for p in paths: shutil.copy2(p,p.with_name(p.name+backup_suffix))
   try:
    for name in prepared:
     if name.endswith('.bundle'): shutil.copy2(output/name,aa0/name)
    for p in paths: shutil.copy2(output/p.name,p)
    if sha(manifest_path.read_bytes())!=report['outputManifestSha256']: raise ValueError('installed manifest mismatch')
   except Exception:
-   for p in paths: shutil.copy2(p.with_name(p.name+'.nas-shop.bak'),p)
+   for p in paths: shutil.copy2(p.with_name(p.name+backup_suffix),p)
    raise
   relative=manifest_path.relative_to(client)
   restore=f'''$ErrorActionPreference='Stop'
 $manifest=Join-Path $PSScriptRoot '{relative}'
-$backup=$manifest+'.nas-shop.bak'
+$backup=$manifest+'{backup_suffix}'
 if((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -ne '{report['inputManifestSha256']}'){{throw 'Shop backup hash mismatch'}}
 Copy-Item -LiteralPath $backup -Destination $manifest -Force
 $hash=[IO.Path]::ChangeExtension($manifest,'.hash')
-Copy-Item -LiteralPath ($hash+'.nas-shop.bak') -Destination $hash -Force
+Copy-Item -LiteralPath ($hash+'{backup_suffix}') -Destination $hash -Force
 Write-Output 'Restored pre-shop client; projectile/HUD compatibility is retained.'
 '''
-  (client/'恢复商城兼容前状态.ps1').write_text(restore,encoding='utf-8-sig')
+  (client/('恢复商城排序修复前状态.ps1' if update_installed else '恢复商城兼容前状态.ps1')).write_text(restore,encoding='utf-8-sig')
  (output/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
  print(json.dumps(report,ensure_ascii=False))
 
 if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__)
  for name in ['client','dll-dir','table-dir','output']:p.add_argument('--'+name,type=Path,required=True)
- p.add_argument('--install',action='store_true');a=p.parse_args()
- prepare(a.client,a.dll_dir,a.table_dir,a.output,a.install)
+ p.add_argument('--install',action='store_true');p.add_argument('--update-installed',action='store_true');a=p.parse_args()
+ prepare(a.client,a.dll_dir,a.table_dir,a.output,a.install,a.update_installed)
