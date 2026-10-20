@@ -137,6 +137,9 @@ func (s *Server) autoBattleStep(ch *channel, epoch uint64) bool {
 }
 
 func (s *Server) autoBattleStepAt(ch *channel, epoch uint64, now time.Time) bool {
+	if s == nil || s.closed.Load() {
+		return false
+	}
 	configStateMu.RLock()
 	defer configStateMu.RUnlock()
 	if ch == nil || ch.session == nil {

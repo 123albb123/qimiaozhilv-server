@@ -172,7 +172,11 @@ func (s *Server) scheduleCombatPhase(delay time.Duration, run func()) {
 		s.combatScheduler(delay, run)
 		return
 	}
-	time.AfterFunc(delay, run)
+	time.AfterFunc(delay, func() {
+		if s == nil || !s.closed.Load() {
+			run()
+		}
+	})
 }
 
 func (s *Server) launchMonsterAttackWave(wave *monsterAttackWave) {

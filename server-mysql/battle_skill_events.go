@@ -416,7 +416,7 @@ func (s *Server) combatTickerLoop() {
 // 玩家手动出手不会被这里排队 —— castSkillLocked 成功即立刻生成自己的 wave
 // （schedulePlayerAttack 的 "manual" 分支），失败就直接拒绝。
 func (s *Server) combatTickChannelAt(ch *channel, now time.Time) {
-	if ch == nil || ch.session == nil {
+	if s == nil || s.closed.Load() || ch == nil || ch.session == nil {
 		return
 	}
 	unlock := s.lockCombatParticipants(ch)
