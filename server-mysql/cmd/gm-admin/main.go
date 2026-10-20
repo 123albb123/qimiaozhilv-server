@@ -34,6 +34,7 @@ func main() {
 	role := flag.String("role", "superadmin", "初始角色")
 	displayName := flag.String("display-name", "", "显示名称")
 	dsn := flag.String("mysql", mysqlschema.DefaultDSN(), "MySQL DSN")
+	ifMissing := flag.Bool("if-missing", false, "仅创建不存在的管理员，保留已有密码、状态和权限")
 	flag.Parse()
 	if !usernamePattern.MatchString(*username) {
 		log.Fatal("invalid -username")
@@ -73,6 +74,10 @@ func main() {
 		}
 		adminID, err = result.LastInsertId()
 	} else if err == nil {
+		if *ifMissing {
+			fmt.Printf("GM admin already exists: id=%d username=%s; credentials and roles preserved\n", adminID, *username)
+			return
+		}
 		if _, err = tx.Exec(`UPDATE gm_admin_users SET password_hash = ?, display_name = ?, status = 1, updated_at = ? WHERE id = ?`, string(hash), strings.TrimSpace(*displayName), now, adminID); err != nil {
 			log.Fatalf("update admin: %v", err)
 		}
