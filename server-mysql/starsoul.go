@@ -859,7 +859,10 @@ func starSoulBonus(ss *session) map[int32]float64 {
 	if ss == nil || tables == nil {
 		return out
 	}
-	b := ss.ensureStarSoulBag()
+	b := ss.starSoul
+	if b == nil {
+		return out
+	}
 	add := func(attributeID int32, scale float64) {
 		row := tables.starSoulAttribute[int64(attributeID)]
 		if row == nil {
@@ -872,9 +875,9 @@ func starSoulBonus(ss *session) map[int32]float64 {
 		}
 		out[nt] += numf(row["Value"]) * scale
 	}
-	for _, id := range b.Used {
+	for slot, id := range b.Used {
 		it := b.Items[id]
-		if it == nil {
+		if slot >= starSoulSlotCount || id == 0 || it == nil || it.PosType != int32(slot) {
 			continue
 		}
 		add(it.Main, math.Pow(1.1, float64(it.Level)))
@@ -921,10 +924,13 @@ func starSoulSuitBonus(ss *session) map[int32]float64 {
 	if ss == nil || tables == nil {
 		return out
 	}
-	bag := ss.ensureStarSoulBag()
+	bag := ss.starSoul
+	if bag == nil {
+		return out
+	}
 	counts := make(map[int32]int)
-	for _, id := range bag.Used {
-		if item := bag.Items[id]; item != nil {
+	for slot, id := range bag.Used {
+		if item := bag.Items[id]; slot < starSoulSlotCount && id != 0 && item != nil && item.PosType == int32(slot) {
 			counts[item.TypeID]++
 		}
 	}
