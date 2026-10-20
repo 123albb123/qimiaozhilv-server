@@ -114,6 +114,7 @@ class Game:
             self.rpc(20016, vf(1, player_id) + vf(2, 1) + sf(3, "GM附件" + account[-8:]))
         if enter:
             self.rpc(20027)
+            self.sock.sendall(struct.pack("<HH", 2, 20029))
         return player_id
 
     def bag(self):

@@ -189,6 +189,7 @@ def register_and_enter(client, suffix):
     entered = client.call(20027, 20028)
     client.player_id = value(entered, 1)
     assert client.player_id, "enter game player id missing"
+    client.send(20029)
     client.send(20030)
 
 
@@ -262,11 +263,15 @@ try:
                 "%s batch actor mismatch for %d" % (client.label, unit_id)
             attributes = values(body, 2, 2)
             keys = {value(attribute, 1) for attribute in attributes}
-            assert len(attributes) == 39 and len(keys) == 39, \
+            # The current captured pre-battle snapshot is deliberately narrow;
+            # full login attributes are a separate packet. Keep the exact
+            # nine-key contract covered by team_battle_test.go, including order.
+            expected_keys = [1001, 1003, 1009, 1010, 1011, 1012, 1013, 1015, 1016]
+            assert [value(attribute, 1) for attribute in attributes] == expected_keys and len(keys) == 9, \
                 "%s player %d incomplete numeric batch: entries=%d keys=%d" % \
                 (client.label, unit_id, len(attributes), len(keys))
-            assert {1001, 1002, 1003, 1004}.issubset(keys), \
-                "%s player %d batch missing HP/MP fields" % (client.label, unit_id)
+            assert {1001, 1003}.issubset(keys), \
+                "%s player %d batch missing current HP/MP fields" % (client.label, unit_id)
             by_unit[unit_id] = by_unit.get(unit_id, 0) + 1
         assert by_unit == {unit_id: 1 for unit_id in expected_ids}, \
             "%s pre-battle numeric batches=%r" % (client.label, by_unit)

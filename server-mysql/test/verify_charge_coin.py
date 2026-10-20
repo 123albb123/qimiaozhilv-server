@@ -215,6 +215,7 @@ def login(stream, acct, name, create=True):
         assert fld(created, 92) is None, '创建角色失败: %s' % txt(created, 3)
     _, entered = stream.call(20027, vf(90, 7), 7)
     assert fld(entered, 92) is None, '进入游戏失败: %s' % txt(entered, 3)
+    stream.sock.sendall(pack(20029, b''))
     return player_id
 
 

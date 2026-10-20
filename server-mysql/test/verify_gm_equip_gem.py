@@ -19,6 +19,7 @@ import socket
 import struct
 import sys
 import time
+from protocol_heartbeat import HeartbeatSocket
 import urllib.error
 import urllib.request
 import uuid
@@ -91,7 +92,7 @@ def repeated(raw, tag):
 
 class Game:
     def __init__(self):
-        self.sock = socket.create_connection((HOST, PORT), timeout=5)
+        self.sock = HeartbeatSocket(socket.create_connection((HOST, PORT), timeout=5))
         self.sock.settimeout(5)
         self.rpc_id = 0
         self.pushes = []
@@ -130,6 +131,7 @@ class Game:
             self.rpc(20016, vf(1, player_id) + vf(2, 1) + sf(3, "宝石" + account[-8:]))
         if enter:
             self.rpc(20027)
+            self.sock.sendall(struct.pack("<HH", 2, 20029))
         return player_id
 
     def bag_snapshot(self):
