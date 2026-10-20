@@ -69,6 +69,8 @@ def validate_table(name, value):
 
 
 def yaml_scalar(value):
+    if type(value) is int and not -(2**63) <= value < 2**63:
+        raise ValueError('integer is outside the MySQL signed BIGINT range')
     if isinstance(value, float) and not math.isfinite(value):
         raise ValueError('non-finite float')
     if value is None or type(value) in (str, int, float, bool):
