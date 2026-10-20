@@ -57,6 +57,16 @@ func TestNewRoleKeepsReservedIdentityThroughFirstEntry(t *testing.T) {
 	if response := server.onEnterGame(ch, &protocol.C2G_EnterGame{RpcId: 4}); response != nil {
 		t.Fatalf("onEnterGame returned an extra response: %+v", response)
 	}
+	beforeReady := decodeRecordedFrames(t, conn.Bytes())
+	if len(beforeReady) != 1 || beforeReady[0].opcode != protocol.OpG2C_EnterGame {
+		t.Fatalf("client components are not ready: scene pushes preceded 20029: %+v", beforeReady)
+	}
+	server.onGetBasicalInfo(ch)
+	readyBytes := len(conn.Bytes())
+	server.onGetBasicalInfo(ch)
+	if len(conn.Bytes()) != readyBytes {
+		t.Fatal("repeated basic-info readiness duplicated the login scene")
+	}
 	// Prevent delayed callbacks from outliving this focused immediate-order test.
 	ss.superseded.Store(true)
 	frames := decodeRecordedFrames(t, conn.Bytes())

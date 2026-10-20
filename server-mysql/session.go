@@ -32,6 +32,7 @@ type session struct {
 	// can replace that scene before its delayed startup callback runs, so this
 	// flag carries the pending snapshot to the replacement map.
 	loginNumericPending atomic.Bool
+	loginScenePending   bool          // fresh client requests 20029 after constructing its UI components
 	teamMoveSeq         atomic.Uint64 // invalidates delayed party-follow paths
 	movementMu          sync.Mutex    // protects interpolated position during delayed follow
 

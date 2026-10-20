@@ -842,7 +842,7 @@ func (s *Server) handleOpcode(ch *channel, opcode uint16, body []byte) {
 		// 20029：基础信息（fire-and-forget，无响应消息）
 		var req protocol.C2M_GetBasicalInfo
 		if err = proto.Unmarshal(body, &req); err == nil {
-			log.Printf("[S=%d] get basical info (no-op)", ch.id)
+			s.onGetBasicalInfo(ch)
 		}
 		return
 	case protocol.OpC2M_CheckSceneError:

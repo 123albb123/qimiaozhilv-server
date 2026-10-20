@@ -50,7 +50,10 @@ func (s *Server) onEnterGame(ch *channel, req *protocol.C2G_EnterGame) proto.Mes
 	resp.Id = p.ID
 	resp.SkinId = ch.session.skinID
 	resp.JobId = ch.session.jobID
-	resp.IsOnline = true
+	// A new TCP login has no client MyUnit, even if this character already
+	// exists in MySQL. false makes the original client finish constructing
+	// MainUI and send C2M_GetBasicalInfo (20029) before it dereferences MyUnit.
+	resp.IsOnline = false
 	if firstEntry {
 		// IsOnline=true makes EnterGameFinish read MyUnit before ChangeMap has
 		// created it. The native first-entry response omits both fields.
@@ -65,17 +68,33 @@ func (s *Server) onEnterGame(ch *channel, req *protocol.C2G_EnterGame) proto.Mes
 	}
 	s.SendToChannel(ch, packOuter(protocol.OpG2C_EnterGame, out))
 	log.Printf("[S=%d] resp opcode=%d len=%d", ch.id, protocol.OpG2C_EnterGame, len(out))
+	ch.session.loginScenePending = true
+	ch.session.state = sessInGame
+	log.Printf("[S=%d] enter game awaiting client basic-info readiness playerID=%d", ch.id, p.ID)
+	return nil
+}
+
+// The stock client awaits CreateMainUI, waits 500ms, then sends 20029 from
+// EnterGameFinish. Sending 20036/20033 together with the RPC response races
+// ClientUnitCharacterComponent creation on a cold client and freezes its HUD.
+func (s *Server) onGetBasicalInfo(ch *channel) {
+	if ch == nil || ch.session == nil || !ch.session.loginScenePending {
+		return
+	}
+	ch.session.loginScenePending = false
+	pid := ch.session.playerID
+	firstEntry := ch.session.initialTaskUIPending
 
 	// SendUnitInfo must precede ChangeMap. ChangeMapEvent retrieves the local
 	// UnitCharacter by GlobalVariable.MyId when creating MyUnit.
 	su := &protocol.M2C_SendUnitInfo{
 		UnitCharacter: buildUnitCharacter(ch.session),
-		ActorId:       p.ID,
+		ActorId:       pid,
 	}
 	suOut, err := proto.Marshal(su)
 	if err != nil {
 		log.Printf("[S=%d] marshal M2C_SendUnitInfo err=%v", ch.id, err)
-		return nil
+		return
 	}
 	s.SendToChannel(ch, packOuter(protocol.OpM2C_SendUnitInfo, suOut))
 	log.Printf("[S=%d] push M2C_SendUnitInfo id=%d name=%q job=%d skin=%d",
@@ -86,7 +105,7 @@ func (s *Server) onEnterGame(ch *channel, req *protocol.C2G_EnterGame) proto.Mes
 		MapId:   wireMapID(mapID),
 		X:       ch.session.x,
 		Y:       ch.session.y,
-		ActorId: p.ID,
+		ActorId: pid,
 	}
 	if firstEntry {
 		mapID = 1000601
@@ -122,9 +141,8 @@ func (s *Server) onEnterGame(ch *channel, req *protocol.C2G_EnterGame) proto.Mes
 			}
 		})
 	}
-	log.Printf("[S=%d] push numeric attrs level=%d charPoint=%d", ch.id, p.Level, ch.session.charPoint)
+	log.Printf("[S=%d] push numeric attrs level=%d charPoint=%d", ch.id, ch.session.level, ch.session.charPoint)
 
 	s.tryApplyLauncherTeamPlans(time.Now())
-	log.Printf("[S=%d] enter game ok playerID=%d", ch.id, p.ID)
-	return nil
+	log.Printf("[S=%d] enter game scene ready playerID=%d", ch.id, pid)
 }
