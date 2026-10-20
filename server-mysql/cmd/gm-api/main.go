@@ -22,6 +22,7 @@ var (
 	gmRedisPW = flag.String("redis-password", os.Getenv("MHQ_REDIS_PASSWORD"), "Redis 密码")
 	gmRedisDB = flag.Int("redis-db", 0, "Redis DB")
 	gmGame    = flag.String("game", envOrDefault("GM_GAME_ADDR", "127.0.0.1:7756"), "游戏服控制/健康检查地址")
+	gmWebRoot = flag.String("web-root", envOrDefault("GM_WEB_ROOT", ""), "可选GM网页静态目录；空值仅提供API")
 )
 
 func envOrDefault(name, fallback string) string {
@@ -53,8 +54,17 @@ func main() {
 	allowMemory := envBool("GM_ALLOW_MEMORY_SESSIONS", false)
 	app := newApp(db, redisClient, strings.TrimSpace(*gmGame), allowMemory)
 	logStartup(app)
+	var handler http.Handler = app
+	if directory := strings.TrimSpace(*gmWebRoot); directory != "" {
+		web, err := newGMWebHandler(app, directory)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer web.Close()
+		handler = web
+	}
 
-	server := &http.Server{Addr: strings.TrimSpace(*gmListen), Handler: app, ReadHeaderTimeout: 5 * time.Second,
+	server := &http.Server{Addr: strings.TrimSpace(*gmListen), Handler: handler, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
