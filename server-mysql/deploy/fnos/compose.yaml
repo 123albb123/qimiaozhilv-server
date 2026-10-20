@@ -115,6 +115,7 @@ services:
       GM_LISTEN: 0.0.0.0:8080
       GM_COOKIE_SECURE: "false"
       GM_VERSION: ${MHQ_IMAGE_TAG}
+      MHQ_PUBLIC_ADDR: ${MHQ_PUBLIC_ADDR:?required}
     tmpfs: ["/tmp:size=16m,mode=1777"]
     depends_on:
       game: {condition: service_healthy}
