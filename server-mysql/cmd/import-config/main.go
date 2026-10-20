@@ -28,7 +28,7 @@ const (
 )
 
 var datatableNames = []string{
-	"MainStory", "MonsterBase", "MapMonsterConfig", "SkillConfig", "SkillGroupBase", "TaskBase",
+	"MainStory", "MainStoryExp", "MonsterBase", "MapMonsterConfig", "SkillConfig", "SkillGroupBase", "TaskBase",
 	"NPCBase", "SkillLearn", "RoleGrowth", "CharacterGrowth", "EquipBase", "Strengthentable",
 	"StrengthPlusConfig", "ItemUpgrade", "EquipAffixConfig", "ManulEquip", "ManulEquipAttribute", "SuitConfig", "GoodsBase",
 	"CopyConfig", "ShopBase", "MarketBase", "MultiShop", "PetConfig", "PetLevelConfig",
@@ -45,7 +45,18 @@ func main() {
 	skillPath := flag.String("skill-logic", "", "SkillLogicConfig YAML source")
 	dsn := flag.String("mysql", mysqlschema.DefaultDSN(), "target MySQL DSN")
 	only := flag.String("only", "", "comma-separated datatables to replace without importing other configuration")
+	bootstrap := flag.Bool("initial-only", false, "atomically initialize an empty database; never overwrite an existing configuration")
+	validateOnly := flag.Bool("validate-only", false, "validate the complete initial YAML bundle without connecting to MySQL")
 	flag.Parse()
+	if *bootstrap || *validateOnly {
+		if *only != "" {
+			log.Fatal("-only cannot be combined with -initial-only or -validate-only")
+		}
+		if err := runBootstrap(*tableDir, *skillPath, *dsn, *validateOnly); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	db, description, err := mysqlschema.Open(*dsn)
 	if err != nil {
@@ -232,6 +243,9 @@ func normalizeYAML(value interface{}) interface{} {
 }
 
 func replaceDatatable(db *sql.DB, name string, rows []interface{}) error {
+	if err := validateDatatable(name, rows); err != nil {
+		return err
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -242,8 +256,8 @@ func replaceDatatable(db *sql.DB, name string, rows []interface{}) error {
 	}
 	for _, raw := range rows {
 		pair, ok := raw.([]interface{})
-		if !ok || len(pair) < 2 {
-			continue
+		if !ok || len(pair) != 2 {
+			return fmt.Errorf("invalid row in %s", name)
 		}
 		id, err := numberInt(pair[0])
 		if err != nil {
