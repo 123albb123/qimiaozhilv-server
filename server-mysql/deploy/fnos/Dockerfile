@@ -15,12 +15,14 @@ ENV GOPROXY=${GOPROXY}
 RUN go mod download
 COPY server-mysql/ ./
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=amd64
-RUN go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/mhqserver . && \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/gm-api ./cmd/gm-api && \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/gm-admin ./cmd/gm-admin && \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/import-config ./cmd/import-config && \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/publish-config ./cmd/publish-config && \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck
+# time.Local initialization in scratch cannot use ZONEINFO alone: embed the
+# database so TZ=Asia/Shanghai also governs daily resets and activity dates.
+RUN go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/mhqserver . && \
+    go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/gm-api ./cmd/gm-api && \
+    go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/gm-admin ./cmd/gm-admin && \
+    go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/import-config ./cmd/import-config && \
+    go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/publish-config ./cmd/publish-config && \
+    go build -tags timetzdata -trimpath -buildvcs=false -ldflags="-s -w" -o /out/healthcheck ./cmd/healthcheck
 COPY --from=configuration /bootstrap /bootstrap
 RUN /out/import-config -validate-only -table /bootstrap/tables -skill-logic /bootstrap/SkillLogicConfig.yaml
 
