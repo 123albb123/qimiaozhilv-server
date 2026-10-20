@@ -1,0 +1,15 @@
+.git
+**/node_modules
+**/dist
+**/.env
+**/*.exe
+**/*.log
+**/*.bak
+_work
+_archive
+client-test
+client-127.0.0.1
+server
+参考数据
+.tools
+**/__pycache__

@@ -1,0 +1,151 @@
+name: qimiao
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-app-env: &app-env
+  TZ: Asia/Shanghai
+  MHQ_MYSQL_DSN: mhq:${MHQ_DB_PASSWORD:?required}@tcp(mysql:3306)/mhq?charset=utf8mb4&collation=utf8mb4_bin&parseTime=true&loc=Local&timeout=10s&readTimeout=30s&writeTimeout=30s
+  MHQ_REDIS_ADDR: redis:6379
+
+services:
+  mysql:
+    image: mysql:8.0.37
+    restart: unless-stopped
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_bin]
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: mhq
+      MYSQL_USER: mhq
+      MYSQL_PASSWORD: ${MHQ_DB_PASSWORD:?required}
+    volumes: [./mysql:/var/lib/mysql]
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -uroot -h127.0.0.1 -e "SELECT 1" >/dev/null 2>&1']
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    networks: [backend]
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [./redis:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+    logging: *logging
+
+  init:
+    image: qimiao-tools:${MHQ_IMAGE_TAG:?required}
+    build:
+      context: ./source
+      dockerfile: server-mysql/deploy/fnos/Dockerfile
+      target: tools
+    restart: "no"
+    read_only: true
+    environment:
+      <<: *app-env
+      GM_ADMIN_USERNAME: ${GM_ADMIN_USERNAME:-admin}
+      GM_ADMIN_PASSWORD: ${GM_ADMIN_PASSWORD:?required}
+    command:
+      - sh
+      - -ec
+      - |
+        import-config -initial-only -table /bootstrap/tables -skill-logic /bootstrap/SkillLogicConfig.yaml
+        gm-admin -username "$${GM_ADMIN_USERNAME}" -if-missing
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [backend]
+    logging: *logging
+
+  game:
+    image: qimiao-game:${MHQ_IMAGE_TAG:?required}
+    build:
+      context: ./source
+      dockerfile: server-mysql/deploy/fnos/Dockerfile
+      target: game
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      <<: *app-env
+      MHQ_PUBLIC_ADDR: ${MHQ_PUBLIC_ADDR:?required}
+    # MySQL is authoritative. Manual file publication avoids resetting GM
+    # configuration changes to a stale mounted file on process restart.
+    command: [-listen, ":7756", "-watch-config=false"]
+    volumes: [./config/operations:/app/config/operations:ro]
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    ports: ["${MHQ_BIND_IP:?required}:${MHQ_GAME_PORT:-7756}:7756/tcp"]
+    healthcheck:
+      test: [CMD, /healthcheck, tcp, "127.0.0.1:7756"]
+      interval: 15s
+      timeout: 4s
+      retries: 4
+      start_period: 30s
+    depends_on:
+      init: {condition: service_completed_successfully}
+    networks: [backend, public]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: *logging
+
+  gm-api:
+    image: qimiao-gm-api:${MHQ_IMAGE_TAG:?required}
+    build:
+      context: ./source
+      dockerfile: server-mysql/deploy/fnos/Dockerfile
+      target: gm-api
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      <<: *app-env
+      GM_GAME_ADDR: game:7756
+      GM_LISTEN: 0.0.0.0:8080
+      GM_COOKIE_SECURE: "false"
+      GM_VERSION: ${MHQ_IMAGE_TAG}
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    depends_on:
+      game: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /healthcheck, http, "http://127.0.0.1:8080/api/v1/health"]
+      interval: 20s
+      timeout: 8s
+      retries: 4
+    networks: [backend]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    logging: *logging
+
+  gm-web:
+    image: qimiao-gm-web:${MHQ_IMAGE_TAG:?required}
+    build:
+      context: ./source
+      dockerfile: server-mysql/deploy/fnos/Web.Dockerfile
+    restart: unless-stopped
+    ports: ["${MHQ_BIND_IP:?required}:${MHQ_GM_PORT:-8897}:80/tcp"]
+    depends_on:
+      gm-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1/"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+    networks: [backend, public]
+    logging: *logging
+
+networks:
+  backend:
+    internal: true
+  public:
