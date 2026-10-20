@@ -141,7 +141,7 @@ export const api = {
   saveDraft: (name: string, contentYaml: string, baseRevision: string) => request<{ draftId: string }>(`/api/v1/configs/${encodeURIComponent(name)}/drafts`, { method: 'POST', body: JSON.stringify({ contentYaml, baseRevision }) }),
   publishConfig: (name: string, contentYaml: string, note: string) => request<{ revision: string; reloadStatus: string; message: string }>(`/api/v1/configs/${encodeURIComponent(name)}/publish`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify({ contentYaml, note }) }),
   rollbackConfig: (name: string, revision: string, note: string) => request<{ revision: string; reloadStatus: string; message: string }>(`/api/v1/configs/${encodeURIComponent(name)}/revisions/${encodeURIComponent(revision)}/rollback`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify({ note }) }),
-  playerCommand: (id: string, action: string, payload: unknown) => request<Record<string, unknown>>(`/api/v1/players/${encodeURIComponent(id)}/${action}`, { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey() }, body: JSON.stringify({ payload }) }),
+  playerCommand: (id: string, action: string, payload: unknown, key = idempotencyKey()) => request<Record<string, unknown>>(`/api/v1/players/${encodeURIComponent(id)}/${action}`, { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ payload }) }),
   broadcastAudience: () => request<BroadcastAudience>('/api/v1/broadcast/audience'),
   // 幂等键由调用方传入：全服公告影响所有在线玩家，键必须在打开确认框时固定下来，
   // 重试复用同一个，双击或网络重连才不会变成第二条公告。

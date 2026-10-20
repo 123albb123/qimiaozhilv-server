@@ -13,6 +13,7 @@ const nav: NavItem[] = [
   { to: '/accounts', label: '游戏账号', icon: Users, permission: 'accounts.read' },
   { to: '/admins', label: '管理员与权限', icon: ShieldCheck, permission: 'admins.manage' },
   { to: '/password', label: '修改密码', icon: ShieldCheck },
+  { to: '/batch', label: '指定玩家批量操作', icon: Boxes, permissions: ['players.mail', 'players.items', 'players.currency'] },
   // 全服操作页有两个页签（公告 / 全服邮件），权限也是分开的两条。任一条命中就要
   // 显示入口 —— 只授了全服邮件的运营进来只看得到那一个页签，这是他该看到的结果。
   { to: '/broadcast', label: '全服操作', icon: Megaphone, permissions: ['server.broadcast', 'server.mail_all'] },
