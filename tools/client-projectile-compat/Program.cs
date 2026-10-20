@@ -2,6 +2,50 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 using System.Security.Cryptography;
 
+if (args.Length == 3 && args[0] == "--audit-shop") {
+    using var oldShop = ModuleDefinition.ReadModule(args[1]);
+    using var newShop = ModuleDefinition.ReadModule(args[2]);
+    if (oldShop.Mvid != newShop.Mvid) throw new InvalidOperationException("shop patch changed module identity");
+    var oldTypes = Types(oldShop.Types).ToDictionary(t => t.FullName);
+    var newTypes = Types(newShop.Types).ToDictionary(t => t.FullName);
+    if (oldTypes.Keys.Any(t => !newTypes.ContainsKey(t)) ||
+        newTypes.Keys.Except(oldTypes.Keys).Any(t => t != "ET.ServerShopPriceCache"))
+        throw new InvalidOperationException("unexpected shop type changes");
+    var allowedFields = new HashSet<string> {
+        "ET.M2C_GetMarket:PriceList", "ET.M2C_GetMarket:DescriptionList",
+        "ET.M2C_SendActiveInfo:ShopPriceData", "ET.M2C_SendActiveInfo:ShopDescriptionData",
+        "ET.NetItem:<Description>k__BackingField", "ET.ShopUI:serverRefreshPage"
+    };
+    foreach (var (name, oldType) in oldTypes) {
+        var next = newTypes[name];
+        if (oldType.Attributes != next.Attributes || oldType.BaseType?.FullName != next.BaseType?.FullName)
+            throw new InvalidOperationException("unexpected existing type modification: " + name);
+        foreach (var field in oldType.Fields)
+            if (!next.Fields.Any(f => f.FullName == field.FullName && f.Attributes == field.Attributes))
+                throw new InvalidOperationException("removed/changed field: " + field.FullName);
+        foreach (var field in next.Fields.Where(f => !oldType.Fields.Any(o => o.FullName == f.FullName)))
+            if (!allowedFields.Contains(name + ":" + field.Name))
+                throw new InvalidOperationException("unexpected new field: " + field.FullName);
+    }
+    var oldBodies = Bodies(oldShop);
+    var newBodies = Bodies(newShop);
+    var allowedOwners = new[] {
+        "ET.ServerShopPriceCache", "ET.ShopUI", "ET.MultiShopUI", "ET.MarketUI", "ET.TabHelper",
+        "ET.M2C_SendActiveInfoHandler", "ET.UpdateBagUIEvent", "ET.UpdateWornEquipUIEvent"
+    };
+    var methods = Types(newShop.Types).SelectMany(t => t.Methods).ToDictionary(m => m.FullName);
+    foreach (var key in oldBodies.Keys)
+        if (!newBodies.ContainsKey(key)) throw new InvalidOperationException("removed method: " + key);
+    var modified = newBodies.Keys.Where(k => !oldBodies.TryGetValue(k, out var prior) || prior != newBodies[k]).ToArray();
+    foreach (var key in modified) {
+        var owner = methods[key].DeclaringType.FullName;
+        if (!allowedOwners.Any(t => owner == t || owner.StartsWith(t + "/", StringComparison.Ordinal)))
+            throw new InvalidOperationException("unrelated shop method changed: " + key);
+        Console.WriteLine(key);
+    }
+    Console.WriteLine($"Shop audit passed: {oldBodies.Count} previous methods retained; {modified.Length} shop-only new/modified bodies; authentication, battle and HUD repair bodies unchanged.");
+    return;
+}
 if (args.Length != 3) throw new ArgumentException("input DLL, new output DLL, original Managed directory required");
 var input = Path.GetFullPath(args[0]);
 var output = Path.GetFullPath(args[1]);
