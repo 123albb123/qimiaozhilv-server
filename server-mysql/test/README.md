@@ -99,3 +99,21 @@ TCP 检查两个反击技能下发 `Time=14000`。精确到期停止触发由
 `MHQ_MYSQL_DSN` 或服务端现有本地开发默认值；需能调用 `mysql`，也可用
 `MHQ_TEST_MYSQL_EXE` 指定客户端路径。仅为新注册的测试角色设置职业、等级、属性、血蓝和技能，
 不修改技能配置。结果摘要保存到 `logs/runtime/tactical-counter-result-*.json`。
+
+## fnOS 局域网验收探针
+
+- `protocol_heartbeat.py`：探针等待期间每2秒发送网关Ping，避免30秒无请求超时。
+- `verify_config_reload.py`：实际GM→MySQL→Redis→运行服发布/回滚/同值重试；须 `MHQ_CONFIG_ALLOW_ISOLATED=1` 且目标版本以 `isolated-` 开头。
+- `verify_nas_soak.py`：10个独立账号真实TCP登录、同时在线、战斗/查询/断线重连/顶号与RPC延时；须明确隔离环境配置。它不是10个Unity实例。
+- `verify_restart_persistence.py`：seed/check两阶段，种入物品/装备/货币，保持在线并观察外部SIGKILL，再核对同角色存档与配置；须 `MHQ_RESTART_ALLOW_ISOLATED=1` 和私有快照路径。
+
+后两个探针由项目内隔离Docker测试辅助脚本设置内网地址、GM测试凭据和持久化快照，不能指向正式玩家库。
+GM测试密码只用私有env-file注入；快照含一次性测试凭据，不提交Git、不打印内容。
+普通GM live探针通过Go测试入口运行，入口名称及环境开关在对应脚本首部和cmd/gm-api/*_integration_test.go。
+原生客户端进入游戏必须在EnterGame RPC后发送20029 GetBasicalInfo，再期待场景推送；不要为旧探针恢复服务端抢跑推送。
+
+追加并发回归：`go test -race -buildvcs=false ./...` 需要启用CGO和C编译器。
+本次Windows使用Go1.25及MinGW GCC，数据库条件不满足者仍SKIP；NAS的真实MySQL测试另外执行。
+`starsoul_readonly_test.go` 覆盖并发属性查询不写背包；`team_vital_sync_test.go` 覆盖定时器必须等待战斗写入完成。
+异步场景测试应注册cleanupGameTestServer，并用对应地图/战斗锁读取轮询状态，结束时失效所有续跑任务，不能以Sleep代替同步。
+微基准：`go test -buildvcs=false -run '^$' -bench '^BenchmarkStarSoulDerivedAttributes$' -benchtime 1s -count 3 -benchmem .`。
