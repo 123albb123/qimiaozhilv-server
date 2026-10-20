@@ -1,4 +1,5 @@
-FROM node:22.16.0-alpine3.22 AS build
+ARG NODE_IMAGE=node:22.16.0-alpine3.22
+FROM ${NODE_IMAGE} AS build
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund

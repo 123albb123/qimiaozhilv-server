@@ -134,6 +134,8 @@ services:
     build:
       context: ./source
       dockerfile: server-mysql/deploy/fnos/Web.Dockerfile
+      args:
+        NODE_IMAGE: ${MHQ_NODE_IMAGE:-node:22.16.0-alpine3.22}
     restart: unless-stopped
     ports: ["${MHQ_BIND_IP:?required}:${MHQ_GM_PORT:-8897}:80/tcp"]
     depends_on:
