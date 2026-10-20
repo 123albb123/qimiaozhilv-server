@@ -66,9 +66,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request, rid string) {
 	}
 	var admin adminRecord
 	var status int
-	err := a.db.QueryRowContext(r.Context(), `SELECT id, username, password_hash, display_name, status
+	var authVersion int64
+	err := a.db.QueryRowContext(r.Context(), `SELECT id, username, password_hash, display_name, status, updated_at
 		FROM gm_admin_users WHERE username = ? LIMIT 1`, username).
-		Scan(&admin.ID, &admin.Username, &admin.PasswordHash, &admin.DisplayName, &status)
+		Scan(&admin.ID, &admin.Username, &admin.PasswordHash, &admin.DisplayName, &status, &authVersion)
 	if err != nil || status != 1 || bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)) != nil {
 		writeError(w, http.StatusUnauthorized, rid, "invalid_credentials", "管理员账号或密码错误")
 		return
@@ -83,6 +84,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request, rid string) {
 		writeError(w, http.StatusServiceUnavailable, rid, "session_unavailable", "管理会话暂不可用")
 		return
 	}
+	session.AuthVersion = authVersion
 	ctx, cancel := a.requestContext(r)
 	err = a.sessions.Put(ctx, session)
 	cancel()
@@ -91,7 +93,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request, rid string) {
 		return
 	}
 	now := time.Now().Unix()
-	_, _ = a.db.ExecContext(r.Context(), `UPDATE gm_admin_users SET last_login_at = ?, updated_at = ? WHERE id = ?`, now, now, admin.ID)
+	_, _ = a.db.ExecContext(r.Context(), `UPDATE gm_admin_users SET last_login_at = ? WHERE id = ?`, now, admin.ID)
 	a.setSessionCookies(w, session)
 	_ = a.writeAudit(r.Context(), auditRecord{RequestID: rid, AdminID: admin.ID, Action: "auth.login", Result: "completed", ClientIP: clientIP(r), UserAgent: r.UserAgent()})
 	writeJSON(w, http.StatusOK, rid, map[string]any{
@@ -172,6 +174,19 @@ func (a *App) requireSession(r *http.Request) (*sessionData, *apiError) {
 			return nil, &apiError{Code: "unauthorized", Message: "请先登录"}
 		}
 		return nil, &apiError{Code: "session_unavailable", Message: "管理会话暂不可用"}
+	}
+	// Positive administrator IDs are real login sessions. ID zero is used only
+	// by the existing isolated live-protocol test harness, never by login.
+	if a.db != nil && session.AdminID > 0 {
+		var status int
+		var version int64
+		err := a.db.QueryRowContext(r.Context(), `SELECT status, updated_at FROM gm_admin_users WHERE id = ?`, session.AdminID).Scan(&status, &version)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && (status != 1 || version != session.AuthVersion)) {
+			return nil, &apiError{Code: "unauthorized", Message: "管理员状态或凭据已更新，请重新登录"}
+		}
+		if err != nil {
+			return nil, &apiError{Code: "session_unavailable", Message: "管理会话暂不可用"}
+		}
 	}
 	return session, nil
 }

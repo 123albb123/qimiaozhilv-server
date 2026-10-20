@@ -39,8 +39,8 @@ func main() {
 	if !usernamePattern.MatchString(*username) {
 		log.Fatal("invalid -username")
 	}
-	if len(*password) < 12 || len(*password) > 128 {
-		log.Fatal("-password must be 12-128 characters")
+	if len(*password) < 12 || len(*password) > 72 {
+		log.Fatal("-password must be 12-72 bytes")
 	}
 	if _, ok := builtinRoles[*role]; !ok {
 		log.Fatalf("unknown role %q", *role)
@@ -78,7 +78,7 @@ func main() {
 			fmt.Printf("GM admin already exists: id=%d username=%s; credentials and roles preserved\n", adminID, *username)
 			return
 		}
-		if _, err = tx.Exec(`UPDATE gm_admin_users SET password_hash = ?, display_name = ?, status = 1, updated_at = ? WHERE id = ?`, string(hash), strings.TrimSpace(*displayName), now, adminID); err != nil {
+		if _, err = tx.Exec(`UPDATE gm_admin_users SET password_hash = ?, display_name = ?, status = 1, updated_at = ? WHERE id = ?`, string(hash), strings.TrimSpace(*displayName), time.Now().UnixNano(), adminID); err != nil {
 			log.Fatalf("update admin: %v", err)
 		}
 	} else {

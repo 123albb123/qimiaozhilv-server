@@ -47,6 +47,7 @@ type sessionData struct {
 	Roles       []string `json:"roles"`
 	CSRF        string   `json:"csrf"`
 	ExpiresAt   int64    `json:"expiresAt"`
+	AuthVersion int64    `json:"authVersion"`
 }
 
 type sessionBackend interface {

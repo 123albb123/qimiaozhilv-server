@@ -111,6 +111,14 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleMe(w, r, rid, session)
 		return
 	}
+	if path == "/api/v1/auth/password" {
+		a.handleOwnPassword(w, r, rid, session)
+		return
+	}
+	if path == "/api/v1/admins" || strings.HasPrefix(path, "/api/v1/admins/") {
+		a.handleAdmins(w, r, rid, session, path)
+		return
+	}
 	if path == "/api/v1/sub-gm/bindings" {
 		a.handleSubGMSelf(w, r, rid, session, path)
 		return
