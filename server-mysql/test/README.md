@@ -113,7 +113,7 @@ GM测试密码只用私有env-file注入；快照含一次性测试凭据，不�
 原生客户端进入游戏必须在EnterGame RPC后发送20029 GetBasicalInfo，再期待场景推送；不要为旧探针恢复服务端抢跑推送。
 
 追加并发回归：`go test -race -buildvcs=false ./...` 需要启用CGO和C编译器。
-本次Windows使用Go1.25及MinGW GCC，数据库条件不满足者仍SKIP；NAS的真实MySQL测试另外执行。
+原Windows回归使用Go1.25及MinGW GCC，根包有57项因数据库/live条件不足而SKIP；该历史记录不等于这57项通过race。
 `starsoul_readonly_test.go` 覆盖并发属性查询不写背包；`team_vital_sync_test.go` 覆盖定时器必须等待战斗写入完成。
 异步场景测试应注册cleanupGameTestServer，并用对应地图/战斗锁读取轮询状态，结束时失效所有续跑任务，不能以Sleep代替同步。
 微基准：`go test -buildvcs=false -run '^$' -bench '^BenchmarkStarSoulDerivedAttributes$' -benchtime 1s -count 3 -benchmem .`。
@@ -125,3 +125,32 @@ GM测试密码只用私有env-file注入；快照含一次性测试凭据，不�
 `capture_client_acceptance.py --credentials 私有env文件 --player 测试角色ID --output 新快照.json`
 仅收集已授权NAS上指定角色的只读GM状态，为实际客户端操作的物品/货币/存档对账提供证据。
 它使用独立内存会话并退出，凭据及快照不得提交Git；不会代替客户端游玩或把服务端读取当作UI验收通过。
+
+### 补跑数据库/live race
+
+`race_mysql_required.txt` 固定记录上述57项测试名，`summarize_isolated_race.py` 会逐项要求真实PASS；整个根包有SKIP、FAIL、未正常结束或任一进程报告DATA RACE时均返回失败。
+
+本次使用Windows Go1.25.0与MinGW GCC编译测试程序及测试游戏服，两者都必须由 `go version -m` 确认 `-race=true`、`CGO_ENABLED=1`。测试游戏服只监听本机 `127.0.0.1:7756`。
+MySQL8.0.37和Redis7.4使用fnOS单独创建的临时容器；测试MySQL数据目录为 `/vol1/1000/docker/qimiao/isolated/race-direct-20261020/mysql`，临时端口分别13360、16380，使用独立随机密码，结束删除这两个容器及端口映射。没有Docker socket、正式数据目录或正式数据库凭据。
+
+本机先运行 `tools/prepare_config_yaml.py --output 私有输出目录`，复制 `config/operations/*.yaml`（排除CustomSkins.yaml）到生成的tables，再用 `cmd/import-config -initial-only` 仅初始化新建隔离库。
+不要将生产DSN传给测试；测试会创建和删除夹具数据库。
+
+编译在 `server-mysql/` 下进行（CGO_ENABLED=1，CC设为GCC路径）：
+
+```powershell
+go test -race -buildvcs=false -c -o 私有产物目录/race-game-20261020.test.exe .
+go build -race -buildvcs=false -o 私有产物目录/race-game-20261020.exe .
+./test/run_isolated_race.ps1 -PrivateConfig 私有配置.json -Artifacts 私有产物目录 -Go Go完整路径 -Gcc GCC完整路径
+```
+
+运行器要求私有JSON包含 `mysqlHost=192.168.1.22:13360`、`redisHost=192.168.1.22:16380`、`database=mhq_race_live` 及至少32位随机 `password`，并拒绝覆盖既有测试日志。它不创建/停止任何既有服务，仅在本机7756未占用时启动自己的测试游戏服，结束后清理该进程。
+输出为Go test2json事件、进程退出码及独立游戏日志；首次启动参数失败的记录单独保留，不能混作通过。
+
+完成后运行严格汇总（路径按实际产物目录填写）：
+
+```text
+python test/summarize_isolated_race.py --events race-isolated-root-20261020.jsonl --required test/race_mysql_required.txt --game-log race-isolated-game-20261020.log --exit-code race-isolated-root-20261020.exit --output race-summary.json
+```
+
+逐项结果与执行平台写入根目录“隔离数据库-race验收.md”。这是Go并发检测和真实MySQL/live覆盖，不是完整Unity客户端玩法验收，也不证明不存在其他并发缺陷。
