@@ -46,3 +46,26 @@ func TestStarSoulStatReadsDoNotNormalizeOrAllocateSessionState(t *testing.T) {
 		t.Fatal("read-only validation disagrees with normalized inventory")
 	}
 }
+
+func BenchmarkStarSoulDerivedAttributes(b *testing.B) {
+	old := tables
+	if err := loadDatatables("../datatable_json"); err != nil {
+		b.Fatal(err)
+	}
+	defer func() { tables = old }()
+	ss := newSession()
+	ss.jobID, ss.level = 1, 100
+	ss.starSoul = newStarSoulBag()
+	for slot := 0; slot < starSoulSlotCount; slot++ {
+		id := int64(slot + 1)
+		ss.starSoul.Items[id] = &starSoulItem{ID: id, TypeID: 1001, PosType: int32(slot), Main: 1105, Level: 5, IsUsed: true}
+		ss.starSoul.Used[slot] = id
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if ss.playerMaxHp() <= 0 {
+			b.Fatal("invalid derived HP")
+		}
+	}
+}
