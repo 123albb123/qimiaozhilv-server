@@ -117,3 +117,7 @@ GM测试密码只用私有env-file注入；快照含一次性测试凭据，不�
 `starsoul_readonly_test.go` 覆盖并发属性查询不写背包；`team_vital_sync_test.go` 覆盖定时器必须等待战斗写入完成。
 异步场景测试应注册cleanupGameTestServer，并用对应地图/战斗锁读取轮询状态，结束时失效所有续跑任务，不能以Sleep代替同步。
 微基准：`go test -buildvcs=false -run '^$' -bench '^BenchmarkStarSoulDerivedAttributes$' -benchtime 1s -count 3 -benchmem .`。
+
+`verify_compact_gm.py` 验证合并GM网页/API后的真实HTTP与游戏TCP链路：SPA深链接、JS/CSS、登录Cookie、同源CSRF、在线发放幂等、中文邮件和领取附件。
+必须显式设置 `MHQ_COMPACT_ALLOW_ISOLATED=1`，在隔离游戏的网络命名空间内运行；`MHQ_COMPACT_GM_URL` 的健康版本必须以 `isolated-` 开头。
+普通管理员凭据只从私有env-file提供 `GM_ADMIN_USERNAME` / `GM_ADMIN_PASSWORD`，不要放入命令行或日志。测试会新建自己的普通角色并只写隔离库。
