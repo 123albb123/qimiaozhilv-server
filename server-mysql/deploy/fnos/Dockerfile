@@ -1,3 +1,11 @@
+ARG NODE_IMAGE=node:22.16.0-alpine3.22
+FROM ${NODE_IMAGE} AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
 FROM python:3.12.11-alpine3.22 AS configuration
 WORKDIR /source
 COPY tools/prepare_config_yaml.py tools/prepare_config_yaml.py
@@ -34,20 +42,26 @@ ENV ZONEINFO=/zoneinfo.zip
 USER 65532:65532
 WORKDIR /app
 
-FROM scratch AS game
+FROM alpine:3.22 AS game
 COPY --from=build /out/mhqserver /out/healthcheck /
+COPY --from=build /out/import-config /usr/local/bin/import-config
+COPY --from=configuration /bootstrap/ /bootstrap/
+COPY server-mysql/deploy/fnos/entrypoints/game.sh /entrypoint.sh
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
 ENV ZONEINFO=/zoneinfo.zip
 USER 65532:65532
 WORKDIR /app
 EXPOSE 7756
-ENTRYPOINT ["/mhqserver"]
+ENTRYPOINT ["sh", "/entrypoint.sh"]
 
-FROM scratch AS gm-api
+FROM alpine:3.22 AS gm-api
 COPY --from=build /out/gm-api /out/healthcheck /
+COPY --from=build /out/gm-admin /usr/local/bin/gm-admin
+COPY --from=web /web/dist/ /web/
+COPY server-mysql/deploy/fnos/entrypoints/gm-api.sh /entrypoint.sh
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
-ENV ZONEINFO=/zoneinfo.zip
+ENV ZONEINFO=/zoneinfo.zip GM_WEB_ROOT=/web
 USER 65532:65532
 WORKDIR /app
 EXPOSE 8080
-ENTRYPOINT ["/gm-api"]
+ENTRYPOINT ["sh", "/entrypoint.sh"]

@@ -45,7 +45,10 @@ services:
     networks: [backend]
     logging: *logging
 
-  init:
+  # Explicit `docker compose run --rm tools COMMAND` only; normal startup has
+  # four services and leaves no completed initialization container.
+  tools:
+    profiles: [maintenance]
     image: qimiao-tools:${MHQ_IMAGE_TAG:?required}
     build:
       context: ./source
@@ -57,12 +60,7 @@ services:
       <<: *app-env
       GM_ADMIN_USERNAME: ${GM_ADMIN_USERNAME:-admin}
       GM_ADMIN_PASSWORD: ${GM_ADMIN_PASSWORD:?required}
-    command:
-      - sh
-      - -ec
-      - |
-        import-config -initial-only -table /bootstrap/tables -skill-logic /bootstrap/SkillLogicConfig.yaml
-        gm-admin -username "$${GM_ADMIN_USERNAME}" -if-missing
+    command: ["true"]
     depends_on:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -94,7 +92,8 @@ services:
       retries: 4
       start_period: 30s
     depends_on:
-      init: {condition: service_completed_successfully}
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
     networks: [backend, public]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -106,6 +105,8 @@ services:
       context: ./source
       dockerfile: server-mysql/deploy/fnos/Dockerfile
       target: gm-api
+      args:
+        NODE_IMAGE: ${MHQ_NODE_IMAGE:-node:22.16.0-alpine3.22}
     restart: unless-stopped
     init: true
     read_only: true
@@ -114,6 +115,9 @@ services:
       GM_GAME_ADDR: game:7756
       GM_LISTEN: 0.0.0.0:8080
       GM_COOKIE_SECURE: "false"
+      GM_ADMIN_USERNAME: ${GM_ADMIN_USERNAME:-admin}
+      GM_ADMIN_PASSWORD: ${GM_ADMIN_PASSWORD:?required}
+      GM_WEB_ROOT: /web
       GM_VERSION: ${MHQ_IMAGE_TAG}
       MHQ_PUBLIC_ADDR: ${MHQ_PUBLIC_ADDR:?required}
     tmpfs: ["/tmp:size=16m,mode=1777"]
@@ -124,28 +128,10 @@ services:
       interval: 20s
       timeout: 8s
       retries: 4
-    networks: [backend]
+    ports: ["${MHQ_BIND_IP:?required}:${MHQ_GM_PORT:-8897}:8080/tcp"]
+    networks: [backend, public]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
-    logging: *logging
-
-  gm-web:
-    image: qimiao-gm-web:${MHQ_IMAGE_TAG:?required}
-    build:
-      context: ./source
-      dockerfile: server-mysql/deploy/fnos/Web.Dockerfile
-      args:
-        NODE_IMAGE: ${MHQ_NODE_IMAGE:-node:22.16.0-alpine3.22}
-    restart: unless-stopped
-    ports: ["${MHQ_BIND_IP:?required}:${MHQ_GM_PORT:-8897}:80/tcp"]
-    depends_on:
-      gm-api: {condition: service_healthy}
-    healthcheck:
-      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1/"]
-      interval: 20s
-      timeout: 5s
-      retries: 4
-    networks: [backend, public]
     logging: *logging
 
 networks:
