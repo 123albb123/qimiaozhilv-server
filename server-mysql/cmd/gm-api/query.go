@@ -34,12 +34,16 @@ func (a *App) handleAccounts(w http.ResponseWriter, r *http.Request, rid string,
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	limit := clampLimit(r.URL.Query().Get("limit"), 25)
 	cursor := parseInt64Param(r.URL.Query().Get("cursor"), 0)
+	comparison, direction := ">", "ASC"
+	if r.URL.Query().Get("order") == "desc" {
+		comparison, direction = "<", "DESC"
+	}
 	ctx, cancel := a.requestContext(r)
 	defer cancel()
 	rows, err := a.db.QueryContext(ctx, `SELECT id, account, create_time,
 		(SELECT COUNT(*) FROM players p WHERE p.account_id = a.id) AS player_count
-		FROM accounts a WHERE a.id > ? AND (? = '' OR account LIKE CONCAT('%', ?, '%') OR a.id = ?)
-		ORDER BY a.id LIMIT ?`, cursor, query, query, parseInt64Param(query, 0), limit)
+		FROM accounts a WHERE (? = 0 OR a.id `+comparison+` ?) AND (? = '' OR account LIKE CONCAT('%', ?, '%') OR a.id = ?)
+		ORDER BY a.id `+direction+` LIMIT ?`, cursor, cursor, query, query, parseInt64Param(query, 0), limit+1)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, rid, "query_failed", "账号查询失败")
 		return
@@ -60,7 +64,12 @@ func (a *App) handleAccounts(w http.ResponseWriter, r *http.Request, rid string,
 		writeError(w, http.StatusInternalServerError, rid, "query_failed", "账号查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, rid, map[string]any{"items": items, "nextCursor": nextCursor(items)}, nil)
+	next := ""
+	if len(items) > limit {
+		items = items[:limit]
+		next = nextCursor(items)
+	}
+	writeJSON(w, http.StatusOK, rid, map[string]any{"items": items, "nextCursor": next}, nil)
 }
 
 func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, session *sessionData) {
@@ -71,10 +80,14 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
 	limit := clampLimit(r.URL.Query().Get("limit"), 25)
 	cursor := parseInt64Param(r.URL.Query().Get("cursor"), 0)
+	comparison, direction := ">", "ASC"
+	if r.URL.Query().Get("order") == "desc" {
+		comparison, direction = "<", "DESC"
+	}
 	onlineFilter := strings.TrimSpace(r.URL.Query().Get("online"))
 	ctx, cancel := a.requestContext(r)
 	defer cancel()
-	queryLimit := limit
+	queryLimit := limit + 1
 	if onlineFilter == "true" || onlineFilter == "false" {
 		// Online state is stored in Redis and cannot be filtered by the SQL
 		// LIMIT. Read a wider page so a matching player is not hidden behind
@@ -87,14 +100,14 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 	playersQuery := `SELECT p.id, a.account, p.name, p.job_id, p.level, p.trans,
 		p.family_id, p.map_id, p.last_login, p.coin, p.yuan_bao, p.voucher, p.honor,
 		p.pvp_currency, p.store_coin FROM players p JOIN accounts a ON a.id = p.account_id
-		WHERE p.id > ? AND (? = '' OR p.name LIKE CONCAT('%', ?, '%') OR a.account LIKE CONCAT('%', ?, '%') OR p.id = ? OR a.id = ?)
+		WHERE (? = 0 OR p.id ` + comparison + ` ?) AND (? = '' OR p.name LIKE CONCAT('%', ?, '%') OR a.account LIKE CONCAT('%', ?, '%') OR p.id = ? OR a.id = ?)
 		`
-	playerArgs := []any{cursor, query, query, query, parseInt64Param(query, 0), parseInt64Param(query, 0)}
+	playerArgs := []any{cursor, cursor, query, query, query, parseInt64Param(query, 0), parseInt64Param(query, 0)}
 	if isSubGM(session) {
 		playersQuery += ` AND EXISTS (SELECT 1 FROM gm_sub_gm_bindings b WHERE b.account_id = p.account_id AND b.sub_gm_id = ?)`
 		playerArgs = append(playerArgs, session.AdminID)
 	}
-	playersQuery += ` ORDER BY p.id LIMIT ?`
+	playersQuery += ` ORDER BY p.id ` + direction + ` LIMIT ?`
 	playerArgs = append(playerArgs, queryLimit)
 	rows, err := a.db.QueryContext(ctx, playersQuery, playerArgs...)
 	if err != nil {
@@ -103,12 +116,15 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 	}
 	defer rows.Close()
 	items := make([]map[string]any, 0, limit)
+	scanned, lastScannedID := 0, int64(0)
 	for rows.Next() {
 		player, err := scanPlayerSummary(rows)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, rid, "query_failed", "角色查询失败")
 			return
 		}
+		scanned++
+		lastScannedID = player.ID
 		online, onlineErr := a.isOnline(ctx, player.ID)
 		if onlineErr != nil {
 			online = false
@@ -116,7 +132,7 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 		if onlineFilter == "true" && !online || onlineFilter == "false" && online {
 			continue
 		}
-		if len(items) < limit {
+		if len(items) <= limit {
 			items = append(items, playerSummaryJSON(player, online))
 		}
 	}
@@ -124,7 +140,16 @@ func (a *App) handlePlayers(w http.ResponseWriter, r *http.Request, rid string, 
 		writeError(w, http.StatusInternalServerError, rid, "query_failed", "角色查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, rid, map[string]any{"items": items, "nextCursor": nextCursor(items)}, nil)
+	next := ""
+	if len(items) > limit {
+		items = items[:limit]
+		next = nextCursor(items)
+	} else if (onlineFilter == "true" || onlineFilter == "false") && scanned == queryLimit {
+		// Continue past a whole non-matching Redis-filtered SQL window instead
+		// of reporting an empty final page and hiding later online characters.
+		next = strconvI64(lastScannedID)
+	}
+	writeJSON(w, http.StatusOK, rid, map[string]any{"items": items, "nextCursor": next}, nil)
 }
 
 type scanner interface{ Scan(...any) error }

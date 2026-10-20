@@ -87,6 +87,7 @@ func TestAdminLifecycleMySQL(t *testing.T) {
 		return res.Result().Cookies(), body.Data.CSRF
 	}
 	rootCookies, rootCSRF := login("rootadmin", "RootSecret123456")
+	checkQueryOrdering(t, db, app, rootCookies)
 	rootRequest := adminChange{Username: "second", Password: "SecondSecret123456", Roles: []string{"readonly"}, Active: true, Reason: "isolated lifecycle regression"}
 	res := call("/api/v1/admins", "POST", rootRequest, rootCookies, rootCSRF)
 	if res.Code != 200 {

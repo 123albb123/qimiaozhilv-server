@@ -113,7 +113,7 @@ export const api = {
   admins: () => request<{ items: AdminUser[] }>('/api/v1/admins'),
   adminRoles: () => request<{ items: { name: string; description: string }[] }>('/api/v1/admins/roles'),
   saveAdmin: (id: string, input: AdminInput) => request<{ id: string; saved: boolean }>(`/api/v1/admins${id ? `/${encodeURIComponent(id)}` : ''}`, { method: 'POST', body: JSON.stringify(input) }),
-  accounts: (params: { query?: string; cursor?: string }) => request<Page<Account>>(`/api/v1/accounts?limit=50&query=${encodeURIComponent(params.query || '')}&cursor=${encodeURIComponent(params.cursor || '')}`),
+  accounts: (params: { query?: string; cursor?: string; order?: string }) => request<Page<Account>>(`/api/v1/accounts?limit=50&query=${encodeURIComponent(params.query || '')}&cursor=${encodeURIComponent(params.cursor || '')}&order=${encodeURIComponent(params.order || '')}`),
   me: async () => {
     const value = await request<Session>('/api/v1/auth/me')
     setCsrfToken(value.csrfToken || csrfFromCookie())
@@ -124,7 +124,7 @@ export const api = {
   items: () => request<{ items: CatalogItem[]; total: number }>('/api/v1/items'),
   skills: () => request<{ items: CatalogSkill[]; total: number }>('/api/v1/skills'),
   equipManualOptions: (itemId?: string) => request<EquipManualOptions>(`/api/v1/equip-manual/options${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ''}`),
-  players: (params: { query?: string; online?: string; cursor?: string }) => request<Page<Player>>(`/api/v1/players?limit=50&query=${encodeURIComponent(params.query || '')}&online=${encodeURIComponent(params.online || '')}&cursor=${encodeURIComponent(params.cursor || '')}`),
+  players: (params: { query?: string; online?: string; cursor?: string; order?: string }) => request<Page<Player>>(`/api/v1/players?limit=50&query=${encodeURIComponent(params.query || '')}&online=${encodeURIComponent(params.online || '')}&cursor=${encodeURIComponent(params.cursor || '')}&order=${encodeURIComponent(params.order || '')}`),
   player: (id: string) => request<PlayerDetail>(`/api/v1/players/${encodeURIComponent(id)}`),
   playerResource: (id: string, resource: string) => request<{ resource: string; items: Record<string, unknown>[] }>(`/api/v1/players/${encodeURIComponent(id)}/${resource}`),
   families: (params: { query?: string; cursor?: string }) => request<Page<Record<string, unknown>>>(`/api/v1/families?limit=50&query=${encodeURIComponent(params.query || '')}&cursor=${encodeURIComponent(params.cursor || '')}`),
