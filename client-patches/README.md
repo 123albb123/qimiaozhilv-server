@@ -213,10 +213,14 @@ A：可以。改地址是独立的，不影响其它文件。但 **MainUI 综合
 
 ## qimiaozhilv-client 独立正式包（2026-10-21）
 
-`tools/prepare_formal_client.py` 仅适用于原始 `qimiaozhilv-client.zip`（SHA256 `e633bdf9c4f92cabab2a292c3df20b2352585db756cf22b94e9ea37fac115055`），不会安装上表其他版本的综合补丁。输入必须是已完成 NAS 地址、HUD 初始化和商城描述两项窄修复的独立副本；工具严格校验每个保留文件、两程序集及 manifest/bundle 哈希，拒绝额外改动。
+`tools/prepare_formal_client.py` 仅适用于原始 `qimiaozhilv-client.zip`（SHA256 `e633bdf9c4f92cabab2a292c3df20b2352585db756cf22b94e9ea37fac115055`），不会安装上表其他版本的综合补丁。输入必须是已完成 NAS 地址，以及 HUD 初始化、商城描述、商城价格缓存和创建模型回收四项窄修复的独立副本；工具严格校验每个保留文件、两程序集及 manifest/bundle 哈希，拒绝额外改动。
 
 ```powershell
 python tools/prepare_formal_client.py --original-zip 'F:\codex\qimiao\qimiaozhilv-client.zip' --patched-client 'F:\codex\qimiao\client-qimiaozhilv-nas' --output 'F:\codex\qimiao\新的交付目录\客户端' --evidence 'F:\codex\qimiao\新的交付目录\文件清单.json'
 ```
 
 需要 UnityPy。输出目录和证据文件必须不存在。输出包含 1167 个经核验运行文件，移除未引用旧配置包，不复制调试脚本、回滚备份或登录缓存；原始 ZIP 与补丁工作副本均不修改。测试证据来自实际完整打包和每文件比对；原生客户端登录与玩法验收仍单独记录，不能用打包校验代替。
+
+最终增量生成器分别为 `tools/prepare_qimiaozhilv_market_prices.ps1`（在已修描述的Hotfix上，仅为LoadMarket增加配置ID到ItemId的投影）、`tools/prepare_qimiaozhilv_role_cleanup.ps1`（在已修HUD的HotfixView上，保留_go赋值并仅对null跳过模型初始化）。两工具严格限制输入SHA，分别比较4669/4568个方法，拒绝无关变化。
+
+`tools/prepare_qimiaozhilv_release.py --client <已修前两项的副本> --hotfix <最终Hotfix.dll> --view <最终HotfixView.dll> --output <新目录>` 只生成资源包预览，不自动安装。它比较10个资源对象、9个TextAsset，保证其余7个TextAsset及20条manifest记录不变。客户端退出后才可安装；旧正式运行目录完整保留为 `F:\codex\qimiao\task-records\formal-client-before-final-fixes` 供回滚，不进入最终运行包。

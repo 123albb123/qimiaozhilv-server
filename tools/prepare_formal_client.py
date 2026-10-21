@@ -11,17 +11,17 @@ import UnityPy
 
 ZIP_SHA = 'e633bdf9c4f92cabab2a292c3df20b2352585db756cf22b94e9ea37fac115055'
 MANIFEST = 'PackageManifest_aa0_2025-01-05-1027.bytes'
-NEW_BUNDLE = '39c75df8be6f1014e904f568c7573237.bundle'
+NEW_BUNDLE = 'faf8974da5385672d4f9f9885856450d.bundle'
 OLD_BUNDLE = '5ff0cd3f4dadb1ed406add45f5bbb636.bundle'
 DATA = '梦幻奇遇记_Data/'
 AA0 = DATA + 'StreamingAssets/yoo/aa0/'
 PATCHED = {
     DATA + 'resources.assets': '7b5f5beb390c8f5e626a5748fb3b7df6b33e446ef55ec350636132fd84fe7a72',
-    AA0 + MANIFEST: 'dec4af2d3b2557c9a6171b12061c541da40be107186df75dc1c1b07698e0df9a',
+    AA0 + MANIFEST: 'cbf2b435f7e968630bd6dc538bba0c91cc4fadbf40ad8431161bf27cd9f340b7',
 }
 DLL_SHA = {
-    'Hotfix.dll': '6d11f836d56f26e8a441347eed43920c8781a3d62c9270b1c023aeca7199cd7a',
-    'HotfixView.dll': '708bdcd6e971d608cf688356323767eec4022beff3019878bdca0ba3221d0b30',
+    'Hotfix.dll': '4f13a35ac89b934b8482e9587ef96af51729f6826c8708858015e69f793f08a0',
+    'HotfixView.dll': '4d22791bd5313503be4a7b2a9ae0d5b6b3a1d934040383c4c90128dddfa4bcc5',
 }
 
 
