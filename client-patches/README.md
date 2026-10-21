@@ -210,3 +210,13 @@ A：可以。改地址是独立的，不影响其它文件。但 **MainUI 综合
 - 补丁安装脚本：`tools/_patch_*.py`、`tools/client-*-patcher/`
 - 启动器补丁：`server-mysql/tools/account-launcher/client-patch/`
 - 客户端地址在协议层的作用：`文档/05-客户端网络组件与连接流程.md`
+
+## qimiaozhilv-client 独立正式包（2026-10-21）
+
+`tools/prepare_formal_client.py` 仅适用于原始 `qimiaozhilv-client.zip`（SHA256 `e633bdf9c4f92cabab2a292c3df20b2352585db756cf22b94e9ea37fac115055`），不会安装上表其他版本的综合补丁。输入必须是已完成 NAS 地址、HUD 初始化和商城描述两项窄修复的独立副本；工具严格校验每个保留文件、两程序集及 manifest/bundle 哈希，拒绝额外改动。
+
+```powershell
+python tools/prepare_formal_client.py --original-zip 'F:\codex\qimiao\qimiaozhilv-client.zip' --patched-client 'F:\codex\qimiao\client-qimiaozhilv-nas' --output 'F:\codex\qimiao\新的交付目录\客户端' --evidence 'F:\codex\qimiao\新的交付目录\文件清单.json'
+```
+
+需要 UnityPy。输出目录和证据文件必须不存在。输出包含 1167 个经核验运行文件，移除未引用旧配置包，不复制调试脚本、回滚备份或登录缓存；原始 ZIP 与补丁工作副本均不修改。测试证据来自实际完整打包和每文件比对；原生客户端登录与玩法验收仍单独记录，不能用打包校验代替。
